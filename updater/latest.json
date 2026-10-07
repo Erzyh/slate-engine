@@ -1,11 +1,11 @@
 {
-  "version": "0.1.4",
-  "notes": "## 다운로드\n\n**`Slate_0.1.4_x64-setup.exe`**: Slate 에디터 설치 파일 (Windows 10/11). 0.1.3을 쓰고 있다면 에디터에서 바로 업데이트됩니다.\n\n## 변경 사항\n\n- 에디터 디자인 전면 개편: 메뉴 바, 가운데 실행 버튼, 패널, 타임라인 태그 바, 상태 표시줄, 시작 화면\n- Game view: 에디터 안에서 게임을 바로 실행하고, 스프라이트와 맵 수정이 실행 중인 게임에 바로 반영\n- 선택 도구: 올가미, 마술봉, 영역 추가/빼기, 핸들로 크기 조절, 뒤집기/회전, 채우기, 선택 반전\n- 원형 브러시, 휠로 확대/축소, 휠 버튼 드래그로 화면 이동\n- 프로젝트 색상(사용자 지정 팔레트)\n- 효과음/음악 만들기 화면 개편, 음악 스타일 선택\n- 입력 창과 확인 창을 에디터 안의 대화 상자로 변경, 앱다운 우클릭 메뉴와 툴팁\n",
-  "pub_date": "2026-10-07T13:34:54.148Z",
+  "version": "0.2.0",
+  "notes": "## 다운로드\n\n**`Slate_0.2.0_x64-setup.exe`**: Slate 에디터 설치 파일 (Windows 10/11). 이전 버전을 쓰고 있다면 에디터에서 바로 업데이트됩니다.\n\n## 새 기능\n\n**에디터**\n- Game 패널: 에디터 안에서 게임 실행, 일시정지·한 프레임씩 넘기기, 충돌 박스 보기, 스크린샷(F8)과 GIF 녹화(F9)\n- 픽셀 에디터: 올가미·마술봉 선택, 선택 영역 크기 조절과 자유 회전, 원형 브러시, 충돌 박스(Hitbox) 도구, Aseprite 파일 가져오기\n- 맵 에디터: 맵 하나에 타일셋 여러 개, 오토타일, 움직이는 타일, 배경(패럴랙스) 레이어, 오브젝트 템플릿, 스프라이트 끌어다 놓기, Play from here\n- 파티클 편집기 (Project → Particles)\n- 코드 자동완성(스프라이트·맵·소리 이름까지)과 마우스 올리면 설명\n- 휠 확대/축소, 앱 스타일 툴팁과 우클릭 메뉴\n\n**게임 코드**\n- 길찾기 `Path` (적 여럿이 같은 목표를 쫓아도 계산 한 번)\n- 셰이더 효과 `Fx.effect` (CRT, 블룸, 색수차, 흑백 등), 충격파, 글리치, 직접 쓴 셰이더\n- 히트스톱 `Fx.freeze`, 화면 번쩍임·페이드\n- 글자 효과 `Text` (물결, 떨림, 무지개, 타자 효과), 대화창 글에도 적용\n- 파티클 프리셋 `fx:burst(x, y, \"이름\")`, 계속 뿜기 `fx:emit`\n- `hitbox()`, `playtest()`\n\n**웹 빌드**\n- 휴대폰·태블릿에서 화면 터치 패드 (게임 코드 수정 없이 동작)\n\n**문서**\n- 영어/한국어 문서\n",
+  "pub_date": "2026-10-07T15:09:48.860Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUOHlJQVB0eUo0dXVTeDlqTmc1Y2NxQTd0NVl5bGVINElaQy9SWlpjRmkxTFF1NGhYWnU5bTIwRDNPS216SGw0Uko2Zk9LK1RhQitGdDZ1MWZaRStaUndweWIzMkNJcmdRPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkxMzgwMDk0CWZpbGU6U2xhdGVfMC4xLjRfeDY0LXNldHVwLmV4ZQl2ZXJzaW9uOjAuMS40ClUzcjZVWEF6b2xlU25tWHNTdWRRZ1p2SU9kOGZkdUw0SHVvbEdicVVtOWNVZGQ1aU9pTnRvTFJIU01PQzVIMU9Cai9wY3pDVDJCZ21mN0dpMmhyd0J3PT0K",
-      "url": "https://github.com/Erzyh/slate-engine/releases/download/v0.1.4/Slate_0.1.4_x64-setup.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUOHlJQVB0eUo0dXRHTXRwMWpsaDdpY1czSURFbzBMNE9qSkN5am1xWXdzdEk5SjB3NWc0TmtRMjRWakxJTFRSRmdDbVV3eEFkT2VMZUsrMkR5TmRhMVJHNWw4V1FrK1FNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkxMzg1Nzg4CWZpbGU6U2xhdGVfMC4yLjBfeDY0LXNldHVwLmV4ZQl2ZXJzaW9uOjAuMi4wCkRRd3hSRFNUdGNlUVlNcXdFOTV1Y1N6VGVKSCs4eHJKTk8yYW5sVzZOTWx0enRWcWJNRFZHeTBRYmtoMHZlS3loM3NqV0tjRmV4MEdpMWs4dE1HcEF3PT0K",
+      "url": "https://github.com/Erzyh/slate-engine/releases/download/v0.2.0/Slate_0.2.0_x64-setup.exe"
     }
   }
 }
