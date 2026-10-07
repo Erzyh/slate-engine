@@ -23,11 +23,15 @@ import { Welcome } from "./welcome.ts";
 import { GameView } from "./game-view.ts";
 import { desktopFeel } from "./desktop-feel.ts";
 import { tooltips } from "./tooltip.ts";
+import { readAseprite } from "./aseprite.ts";
+import { ParticleDialog } from "./particle-dialog.ts";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const LAST_FOLDER = "slate:lastFolder";
 const RECENT = "slate:recent";
 const RUN_IN = "slate:runIn";
+/** the docs in the user's language (Korean or English) */
+const docUrl = (name: string) => `https://github.com/Erzyh/slate-engine/blob/main/docs/${navigator.language.startsWith("ko") ? "ko" : "en"}/${name}.md`;
 const VERSION = __SLATE_VERSION__;
 
 desktopFeel();
@@ -65,6 +69,13 @@ musicDialog.onSave = (dir, name, wav) => {
   setStatus(`Saved ${dir}/${name}.wav · play it in code with music("${name}")`);
 };
 let preview: HTMLAudioElement | null = null;
+const particleDialog = new ParticleDialog({
+  presets: () => (project.cart.particles ??= {}),
+  changed: () => {
+    markFile("slate.json");
+    scheduleNativeSync();
+  },
+});
 const mapEditor = new MapEditor({
   changed: () => {
     if (mapEditor.map) markFile(mapPath(mapEditor.map.name));
@@ -74,6 +85,14 @@ const mapEditor = new MapEditor({
   flagsChanged: (s) => {
     markFile(spritePath(s.name));
     scheduleNativeSync();
+  },
+  templatesChanged: () => {
+    markFile("slate.json");
+    scheduleNativeSync();
+  },
+  playFrom: (map, x, y) => {
+    playtest = { map, x, y };
+    void useGameView().then((view) => startGame(view ? "view" : "window"));
   },
 });
 const panels = new PixelPanels(editor, {
@@ -106,10 +125,21 @@ const code = new CodeEditor($("code-host"), $("code-tabs"), {
   run: () => void restart(),
   save: () => void save(),
   scripts: () => Object.keys(project.scripts),
+  names: (kind) =>
+    kind === "sprites" ? project.sprites.map((s) => s.name)
+    : kind === "maps" ? project.maps.map((m) => m.name)
+    : kind === "sounds" ? Object.keys(project.cart.sounds ?? {})
+    : kind === "music" ? Object.keys(project.cart.music ?? {})
+    : Object.keys(project.cart.particles ?? {}),
 });
 code.onSwitch = (path) => openScript(path);
 const statusEl = $("status");
-const gameView = new GameView({ log: (line) => appendLog(line + "\n"), error: (text) => showError(text) });
+const gameView = new GameView({
+  log: (line) => appendLog(line + "\n"),
+  error: (text) => showError(text),
+  save: (name, bytes, ext, label) => void saveBinary(`${project.cart.name}-${name}`, bytes, ext, label).then((p) => p && setStatus(`Saved ${p}`)),
+  status: (msg) => setStatus(msg),
+});
 /** where Play runs the game: the Game view inside the editor, or a separate window */
 const runIn = () => (localStorage.getItem(RUN_IN) === "window" ? "window" : "view");
 
@@ -442,7 +472,7 @@ $<HTMLInputElement>("import-input").onchange = async (e) => {
   for (const f of list) await importFile(f, importTarget);
 };
 
-/** Add a file from disk: .luau -> scripts, .png -> sprite, .ogg/.wav -> music or sounds, .json -> map. */
+/** Add a file from disk: .luau -> scripts, .png / .aseprite -> sprite, .ogg/.wav -> music or sounds, .json -> map. */
 async function importFile(f: File, dir: string) {
   const ext = extOf(f.name), name = baseName(f.name).replace(/[^\w-]/g, "_");
   const top = dir.split("/")[0];
@@ -459,6 +489,19 @@ async function importFile(f: File, dir: string) {
     const s = project.addSprite(name, [g.getImageData(0, 0, img.width, img.height)], 8, top === "sprites" ? dir : "sprites");
     markFile(spritePath(s.name));
     openSprite(s.name);
+  } else if (ext === "aseprite" || ext === "ase") {
+    try {
+      const a = await readAseprite(bytes.buffer as ArrayBuffer);
+      const s = project.addSprite(name, a.layers[0].cels, 8, top === "sprites" ? dir : "sprites");
+      s.layers = a.layers;
+      s.tags = a.tags;
+      s.durations = a.durations;
+      markFile(spritePath(s.name));
+      openSprite(s.name);
+      setStatus(`Imported ${f.name}: ${a.layers.length} layer${a.layers.length > 1 ? "s" : ""}, ${s.frameCount} frame${s.frameCount > 1 ? "s" : ""}${a.tags.length ? `, tags ${a.tags.map((t) => t.name).join(", ")}` : ""}`);
+    } catch (err) {
+      setStatus(`Couldn't read ${f.name}: ${(err as Error).message}`, true);
+    }
   } else if (ext === "ogg" || ext === "wav") {
     const kind = top === "music" || top === "sounds" ? top : ext === "ogg" ? "music" : "sounds";
     project.addAudio(kind, name, bytes, ext, top === kind ? dir : kind);
@@ -497,8 +540,20 @@ function rememberRecent(path: string, name: string) {
 // ------------------------------------------------------------------ game
 
 /** Cartridge for the native player. Script edits apply on Restart (Ctrl+Enter), not on every keystroke. */
+/** "Play from here": where the game should start (until the next plain Play) */
+let playtest: Cartridge["playtest"] | null = null;
+/** map objects a game may place its player from */
+const SPAWN = /^(player|start|spawn|hero)$/i;
+
 function nativeCart(): Cartridge {
-  return { ...project.toCart(), scripts: applied.scripts, main: applied.main };
+  const cart: Cartridge = { ...project.toCart(), scripts: applied.scripts, main: applied.main };
+  const pt = playtest;
+  if (pt) {
+    cart.playtest = pt;
+    // games that place their player from a map object start there too, without any code
+    cart.maps = cart.maps?.map((m) => (m.name !== pt.map ? m : { ...m, objects: m.objects?.map((o) => (SPAWN.test(o.type) ? { ...o, x: pt.x, y: pt.y } : o)) }));
+  }
+  return cart;
 }
 
 const cartBytes = () => new TextEncoder().encode(JSON.stringify(nativeCart()));
@@ -568,6 +623,7 @@ async function stopGame() {
 
 async function togglePlay() {
   if (gameRunning()) return stopGame();
+  playtest = null;
   await startGame((await useGameView()) ? "view" : "window");
 }
 
@@ -796,6 +852,7 @@ new MenuBar($("menubar"), [
         { label: "New sprite", action: () => void newSprite() },
         { label: "Import image with Grid Stamp", action: openStamp },
         { label: "Import sprite sheet", action: () => void panels.sheetOp("import-sheet") },
+        { label: "Import Aseprite file", action: () => { importTarget = "sprites"; $<HTMLInputElement>("import-input").click(); } },
         "-",
         op("Flip horizontal", "flip-h"),
         op("Flip vertical", "flip-v"),
@@ -826,6 +883,7 @@ new MenuBar($("menubar"), [
       { label: "New map", action: () => { showTab("map"); $("map-new").click(); } },
       { label: "New sound effect", action: () => sfxDialog.open("sounds") },
       { label: "New music", action: () => musicDialog.open("music") },
+      { label: "Particles", action: () => particleDialog.open() },
       { label: "Import files", action: () => { importTarget = ""; $<HTMLInputElement>("import-input").click(); } },
       "-",
       { label: "Plugins", action: () => void openPlugins() },
@@ -852,9 +910,9 @@ new MenuBar($("menubar"), [
   {
     label: "Help",
     items: () => [
-      { label: "Getting started", action: () => openLink("https://github.com/Erzyh/slate-engine/blob/main/docs/getting-started.md") },
-      { label: "Game code API", action: () => openLink("https://github.com/Erzyh/slate-engine/blob/main/docs/api.md") },
-      { label: "Editor guide", action: () => openLink("https://github.com/Erzyh/slate-engine/blob/main/docs/editor.md") },
+      { label: "Getting started", action: () => openLink(docUrl("getting-started")) },
+      { label: "Game code API", action: () => openLink(docUrl("api")) },
+      { label: "Editor guide", action: () => openLink(docUrl("editor")) },
       "-",
       { label: "Check for updates", action: () => void checkForUpdates(true) },
       { label: `About Slate ${VERSION}`, action: () => void confirmBox(`Slate ${VERSION}`, "A pixel game engine. MIT license.\nERXPIXEL font: SIL Open Font License 1.1.", { ok: "Close", cancel: "" }) },
@@ -923,6 +981,7 @@ window.addEventListener("keydown", (e) => {
   if (mod && e.key.toLowerCase() === "o") { e.preventDefault(); void openFolder(); return; }
   if (welcome.isOpen) { if (e.key === "Escape") welcome.hide(); return; }
   if (stamp.isOpen) { if (e.key === "Escape") stamp.close(); return; }
+  if (particleDialog.isOpen) { if (e.key === "Escape") particleDialog.close(); return; }
   if (sfxDialog.isOpen || musicDialog.isOpen) return;
   if (!$("plugins-dialog").classList.contains("hidden")) { if (e.key === "Escape") $("plugins-dialog").classList.add("hidden"); return; }
   if (e.key === "Escape") { explorer.hideMenu(); closeMenus(); }

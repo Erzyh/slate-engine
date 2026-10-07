@@ -22,6 +22,8 @@ mod engine;
 mod fast;
 mod font;
 mod gfx;
+mod path;
+mod post;
 mod script;
 
 use cart::{Cartridge, Source};
@@ -96,7 +98,7 @@ fn decode_sprites(c: &Cartridge) -> (Vec<gfx::SpriteSrc>, Vec<String>) {
                     Err(e) => errors.push(format!("{}: {e}", s.name)),
                 }
             }
-            gfx::SpriteSrc { name: s.name.clone(), fps: s.fps, durations: s.durations.clone(), frames, tags: s.tags.clone(), flags: s.flags.clone() }
+            gfx::SpriteSrc { name: s.name.clone(), fps: s.fps, durations: s.durations.clone(), frames, tags: s.tags.clone(), flags: s.flags.clone(), hitbox: s.hitbox, tile_anims: s.tile_anims.clone() }
         })
         .collect();
     (sprites, errors)
@@ -114,6 +116,14 @@ struct Game {
     fullscreen: bool,
     code: String,
     update_ms: f64,
+    /// editor Game view: game time stopped; `step` runs one tick while paused
+    paused: bool,
+    step: bool,
+    /// editor Game view: send every frame (GIF recording) / the next one (screenshot)
+    #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+    recording: bool,
+    #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+    snap: bool,
 }
 
 impl Game {
@@ -138,7 +148,13 @@ impl Game {
             fullscreen: c.fullscreen,
             code: String::new(),
             update_ms: 0.0,
+            paused: false,
+            step: false,
+            recording: false,
+            snap: false,
         };
+        g.eng.borrow_mut().playtest = c.playtest.clone();
+        g.eng.borrow_mut().particles = c.particles.clone();
         g.restart(script::Sources::from_cart(c), c.lang.as_deref());
         g
     }
@@ -146,6 +162,9 @@ impl Game {
     fn restart(&mut self, src: script::Sources, lang: Option<&str>) {
         self.code = src.key();
         self.eng.borrow_mut().time = 0.0;
+        // screen shaders belong to the old run
+        self.eng.borrow_mut().gfx.post.params = post::Params::default();
+        let _ = self.eng.borrow_mut().gfx.post.set_custom(None);
         self.acc = 0.0;
         self.error = None;
         if lang == Some("js") {
@@ -171,6 +190,8 @@ impl Game {
         self.eng.borrow_mut().gfx.build_atlas(&sprites);
         // maps reload with the cartridge (live editing); a running game's mset changes are replaced
         self.eng.borrow_mut().set_maps(&c.maps);
+        self.eng.borrow_mut().playtest = c.playtest.clone();
+        self.eng.borrow_mut().particles = c.particles.clone();
         self.eng.borrow_mut().mixer.music_src = decode_music(c);
         self.eng.borrow_mut().mixer.sound_src = decode_sounds(c);
         let src = script::Sources::from_cart(c);
@@ -199,8 +220,15 @@ impl Game {
             let (vx, vy, vs, w, h) = (e.gfx.view_x, e.gfx.view_y, e.gfx.view_scale, e.gfx.width, e.gfx.height);
             e.input.poll(vx, vy, vs, w, h);
         }
+        if self.paused {
+            // frozen: only a requested single step advances the game
+            self.acc = if std::mem::take(&mut self.step) { STEP } else { 0.0 };
+        }
         if self.error.is_none() {
-            self.acc += if self.fixed { STEP } else { (get_frame_time() as f64).min(0.25) };
+            self.acc += if self.fixed || self.paused { 0.0 } else { (get_frame_time() as f64).min(0.25) };
+            if self.fixed && !self.paused {
+                self.acc += STEP;
+            }
             let mut steps = 0;
             while self.acc >= STEP && steps < 5 {
                 self.eng.borrow_mut().input.begin_tick();
@@ -328,6 +356,20 @@ async fn main() {
         {
             if let Some(new) = web::poll_cart().and_then(|b| cart::parse(&b).ok()) {
                 game.reload(&new);
+            }
+            // debug controls from the editor: bit 0 hitboxes, bit 1 paused, bit 2 step once, bit 3 stats,
+            // bit 4 recording, bit 5 screenshot once
+            if let Some(d) = web::poll_debug() {
+                game.eng.borrow_mut().debug_boxes = d & 1 != 0;
+                game.paused = d & 2 != 0;
+                game.step |= d & 4 != 0;
+                game.stats = d & 8 != 0;
+                game.recording = d & 16 != 0;
+                game.snap |= d & 32 != 0;
+            }
+            if game.recording || std::mem::take(&mut game.snap) {
+                let (w, h, px) = game.eng.borrow().gfx.frame_rgba();
+                web::send_frame(w, h, &px);
             }
             if game.error != err_written {
                 web::report_error(game.error.as_deref().unwrap_or(""));

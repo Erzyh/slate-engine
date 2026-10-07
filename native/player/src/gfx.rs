@@ -26,6 +26,24 @@ pub struct Sprite {
     pub frames: Vec<Region>,
     pub tags: Vec<Tag>,
     pub flags: Vec<u32>,
+    pub hitbox: Option<[f32; 4]>,
+    /// per frame: (animation, position in it) for animated tiles
+    pub anim_of: Vec<Option<(usize, usize)>>,
+    pub tile_anims: Vec<crate::cart::TileAnim>,
+}
+
+impl Sprite {
+    /// The frame to draw for tile frame f at time t (animated tiles cycle).
+    pub fn tile_frame(&self, f: usize, t: f64) -> usize {
+        match self.anim_of.get(f).copied().flatten() {
+            Some((a, pos)) => {
+                let an = &self.tile_anims[a];
+                let n = an.frames.len().max(1);
+                an.frames[(pos + (t * an.fps as f64).floor() as usize) % n]
+            }
+            None => f,
+        }
+    }
 }
 
 /// Decoded sprite ready for the atlas.
@@ -36,6 +54,8 @@ pub struct SpriteSrc {
     pub frames: Vec<Image>,
     pub tags: Vec<Tag>,
     pub flags: Vec<u32>,
+    pub hitbox: Option<[f32; 4]>,
+    pub tile_anims: Vec<crate::cart::TileAnim>,
 }
 
 /// Frame index for animation time t (seconds), optionally limited to a tag's range.
@@ -136,6 +156,8 @@ pub struct Gfx {
     dyn_glyphs: HashMap<(u8, u32), Option<(Region, i8, i8, u8)>>,
     /// Free space of the atlas, for glyphs added while the game runs
     packer: Packer,
+    /// screen shaders (Fx effects, a game's own shader) applied when the frame is shown
+    pub post: crate::post::Post,
 }
 
 const VERTEX: &str = r#"#version 100
@@ -208,6 +230,7 @@ impl Gfx {
             font: 0,
             dyn_glyphs: HashMap::new(),
             packer: Packer { x: 1, y: 1, row: 0, size: 1 },
+            post: crate::post::Post::new(),
         };
         g.build_atlas(sprites);
         g
@@ -252,7 +275,16 @@ impl Gfx {
         for s in sprites {
             let regions: Vec<Region> = s.frames.iter().map(|f| blit(f, &mut packer)).collect();
             let (w, h) = s.frames.first().map(|f| (f.w as f32, f.h as f32)).unwrap_or((0.0, 0.0));
-            self.sprites.insert(s.name.clone(), Sprite { w, h, fps: s.fps, durations: s.durations.clone(), frames: regions, tags: s.tags.clone(), flags: s.flags.clone() });
+            let mut anim_of = vec![None; regions.len()];
+            for (a, an) in s.tile_anims.iter().enumerate() {
+                for (pos, &f) in an.frames.iter().enumerate() {
+                    if let Some(slot) = anim_of.get_mut(f) {
+                        *slot = Some((a, pos));
+                    }
+                }
+            }
+            let tile_anims = s.tile_anims.iter().map(|a| crate::cart::TileAnim { frames: a.frames.iter().copied().filter(|&f| f < regions.len()).collect(), fps: a.fps }).collect();
+            self.sprites.insert(s.name.clone(), Sprite { w, h, fps: s.fps, durations: s.durations.clone(), frames: regions, tags: s.tags.clone(), flags: s.flags.clone(), hitbox: s.hitbox, anim_of, tile_anims });
         }
         self.atlas = Texture2D::from_rgba8(size as u16, size as u16, &pixels);
         self.atlas.set_filter(FilterMode::Nearest);
@@ -504,6 +536,10 @@ impl Gfx {
         self.view_x = x;
         self.view_y = y;
         self.view_scale = scale;
+        let shader = self.post.material(w, h).cloned();
+        if let Some(m) = &shader {
+            gl_use_material(m);
+        }
         draw_texture_ex(
             &self.target.texture,
             x,
@@ -512,6 +548,16 @@ impl Gfx {
             // positive y zoom in begin() stores the target top-down, so no flip is needed
             DrawTextureParams { dest_size: Some(vec2(dw, dh)), ..Default::default() },
         );
+        if shader.is_some() {
+            gl_use_default_material();
+        }
+    }
+
+    /// The game image (render target) as RGBA rows, top to bottom.
+    #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+    pub fn frame_rgba(&self) -> (u32, u32, Vec<u8>) {
+        let img = self.target.texture.get_texture_data();
+        (img.width as u32, img.height as u32, img.bytes)
     }
 
     /// Save the game image (render target) as PNG. Used by automated tests.

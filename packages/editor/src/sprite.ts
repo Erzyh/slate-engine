@@ -38,6 +38,12 @@ export class EditSprite {
   flags: number[] = [];
   /** Per-frame duration in ms; 0 = 1/fps (Aseprite-style frame timing). */
   durations: number[] = [];
+  /** Hitbox [x, y, w, h] (null = the whole sprite). */
+  box: [number, number, number, number] | null = null;
+  /** Autotile terrains of a tileset: 16 frames each, in 4x4 block order. */
+  autotiles: number[][] = [];
+  /** Animated tiles of a tileset: these frames cycle on maps. */
+  tileAnims: { frames: number[]; fps: number }[] = [];
   /** Project folder the sprite's files live in ("sprites", "sprites/enemies", ...). */
   folder = "sprites";
 
@@ -198,6 +204,9 @@ export class EditSprite {
     s.tags = this.tags.map((t) => ({ ...t }));
     s.flags = this.flags.slice();
     s.durations = this.durations.slice();
+    s.box = this.box && [...this.box];
+    s.autotiles = this.autotiles.map((a) => a.slice());
+    s.tileAnims = this.tileAnims.map((a) => ({ frames: a.frames.slice(), fps: a.fps }));
     s.folder = this.folder;
     return s;
   }
@@ -208,6 +217,9 @@ export class EditSprite {
     this.tags = from.tags.map((t) => ({ ...t }));
     this.flags = from.flags.slice();
     this.durations = from.durations.slice();
+    this.box = from.box && [...from.box];
+    this.autotiles = from.autotiles.map((a) => a.slice());
+    this.tileAnims = from.tileAnims.map((a) => ({ frames: a.frames.slice(), fps: a.fps }));
     this.fps = from.fps;
   }
 }

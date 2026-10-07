@@ -14,8 +14,11 @@ pub struct Script {
     init: Option<Function>,
     update: Option<Function>,
     draw: Option<Function>,
-    /// the standard library's per-tick work (Timer, Tween, Cam shake), run before update
+    /// the standard library's per-tick work (Timer, Tween, Cam shake), run before update;
+    /// returning true skips this tick's update (Fx.freeze hit-stop)
     tick: Option<Function>,
+    /// the standard library's drawing over the game (Fx screen effects, debug hitboxes)
+    post: Option<Function>,
 }
 
 struct MouseRef(Shared);
@@ -81,7 +84,7 @@ impl Script {
         require.call::<Value>(src.main.clone()).map_err(clean_error)?;
         let g = lua.globals();
         let get = |n: &str| g.get::<Option<Function>>(n).ok().flatten();
-        Ok(Script { init: get("init"), update: get("update"), draw: get("draw"), tick: get("__slate_tick"), _lua: lua })
+        Ok(Script { init: get("init"), update: get("update"), draw: get("draw"), tick: get("__slate_tick"), post: get("__slate_post"), _lua: lua })
     }
 
     pub fn init(&self) -> Result<(), String> {
@@ -89,12 +92,19 @@ impl Script {
     }
 
     pub fn update(&self, dt: f64) -> Result<(), String> {
-        call(&self.tick, dt)?;
+        let skip = match &self.tick {
+            Some(f) => f.call::<Option<bool>>(dt).map_err(clean_error)?.unwrap_or(false),
+            None => false,
+        };
+        if skip {
+            return Ok(());
+        }
         call(&self.update, dt)
     }
 
     pub fn draw(&self) -> Result<(), String> {
-        call(&self.draw, ())
+        call(&self.draw, ())?;
+        call(&self.post, ())
     }
 }
 
@@ -248,6 +258,14 @@ fn register(lua: &Lua, eng: &Shared) -> LuaResult<()> {
                 }
                 t.set("tags", tags)?;
                 t.set("durations", l.create_sequence_from(s.durations.iter().copied())?)?;
+                if let Some([x, y, w, h]) = s.hitbox {
+                    let b = l.create_table()?;
+                    b.set("x", x)?;
+                    b.set("y", y)?;
+                    b.set("w", w)?;
+                    b.set("h", h)?;
+                    t.set("box", b)?;
+                }
                 Ok(Value::Table(t))
             }
             None => Ok(Value::Nil),
@@ -433,6 +451,7 @@ fn register(lua: &Lua, eng: &Shared) -> LuaResult<()> {
                 *c = tile;
             }
         }
+        e.map_version += 1;
         Ok(())
     });
     // objects placed in the editor; props are also copied to the top level for convenience
@@ -462,32 +481,104 @@ fn register(lua: &Lua, eng: &Shared) -> LuaResult<()> {
         let t = l.create_table()?;
         t.set("w", m.w)?;
         t.set("h", m.h)?;
-        let (tw, th) = e.gfx.sprites.get(&m.tileset).map(|s| (s.w, s.h)).unwrap_or((0.0, 0.0));
+        let (tw, th) = e.tile_size(m).unwrap_or((0.0, 0.0));
         t.set("tw", tw)?;
         t.set("th", th)?;
+        let sets: Vec<String> = if m.tilesets.is_empty() { vec![m.tileset.clone()] } else { m.tilesets.clone() };
+        t.set("tilesets", l.create_sequence_from(sets)?)?;
         Ok(Value::Table(t))
     });
-    func!("fget", |e, _l, (sprite, frame, bit): (String, usize, Option<u32>)| {
-        let f = e.gfx.sprites.get(&sprite).and_then(|s| s.flags.get(frame).copied()).unwrap_or(0);
+    // fget(tileset, frame, bit), or fget(map, tile value from mget, bit) for maps with several tilesets
+    func!("fget", |e, _l, (sprite, frame, bit): (String, i64, Option<u32>)| {
+        let f = match e.maps.get(&sprite) {
+            Some(m) => e.tile_flags(m, frame as i32),
+            None => e.gfx.sprites.get(&sprite).and_then(|s| s.flags.get(frame.max(0) as usize).copied()).unwrap_or(0),
+        };
         Ok((f >> bit.unwrap_or(0)) & 1 == 1)
     });
     func!("msolid", |e, _l, (name, px, py, bit): (String, f32, f32, Option<u32>)| {
         let Some(m) = e.maps.get(&name) else { return Ok(false) };
-        let Some(t) = e.gfx.sprites.get(&m.tileset) else { return Ok(false) };
-        if t.w <= 0.0 || t.h <= 0.0 {
-            return Ok(false);
-        }
-        let (tx, ty) = ((px / t.w).floor(), (py / t.h).floor());
+        let Some((tw, th)) = e.tile_size(m) else { return Ok(false) };
+        let (tx, ty) = ((px / tw).floor(), (py / th).floor());
         if tx < 0.0 || ty < 0.0 || tx as usize >= m.w || ty as usize >= m.h {
             return Ok(false);
         }
-        let i = ty as usize * m.w + tx as usize;
-        let bit = bit.unwrap_or(0);
-        Ok(m.layers.iter().any(|l| {
-            let v = l.data.get(i).copied().unwrap_or(-1);
-            v >= 0 && (t.flags.get(v as usize).copied().unwrap_or(0) >> bit) & 1 == 1
-        }))
+        Ok(e.cell_solid(m, tx as i64, ty as i64, bit.unwrap_or(0)))
     });
+
+    // ---------------------------------------------------------------- path finding (Path in std.luau)
+    let query = |o: &Option<Table>| -> mlua::Result<(u32, bool)> {
+        Ok(match o {
+            Some(t) => (t.get::<Option<u32>>("bit")?.unwrap_or(0), t.get::<Option<bool>>("diagonal")?.unwrap_or(true)),
+            None => (0, true),
+        })
+    };
+    func!("__path_find", |e, l, (map, x0, y0, x1, y1, o): (String, f32, f32, f32, f32, Option<Table>)| {
+        let (bit, diagonal) = query(&o)?;
+        match crate::path::find(&mut e, &crate::path::Query { map: &map, bit, diagonal }, x0, y0, x1, y1) {
+            Some(pts) => {
+                let t = l.create_table()?;
+                for (i, (x, y)) in pts.into_iter().enumerate() {
+                    let p = l.create_table()?;
+                    p.set("x", x)?;
+                    p.set("y", y)?;
+                    t.raw_set(i + 1, p)?;
+                }
+                Ok(Value::Table(t))
+            }
+            None => Ok(Value::Nil),
+        }
+    });
+    func!("__path_toward", |e, _l, (map, x, y, tx, ty, o): (String, f32, f32, f32, f32, Option<Table>)| {
+        let (bit, diagonal) = query(&o)?;
+        Ok(match crate::path::toward(&mut e, &crate::path::Query { map: &map, bit, diagonal }, x, y, tx, ty) {
+            Some((dx, dy, d)) => (Some(dx), Some(dy), Some(d)),
+            None => (None, None, None),
+        })
+    });
+    func!("__path_dist", |e, _l, (map, x, y, tx, ty, o): (String, f32, f32, f32, f32, Option<Table>)| {
+        let (bit, diagonal) = query(&o)?;
+        Ok(crate::path::dist(&mut e, &crate::path::Query { map: &map, bit, diagonal }, x, y, tx, ty))
+    });
+
+    // ---------------------------------------------------------------- hitboxes, playtest, debug
+    // hitbox(name, x, y, { flipX, ox, oy }) -> { x, y, w, h }: the sprite's hitbox where spr() would
+    // draw it (the whole sprite when it has none)
+    func!("hitbox", |e, l, (name, x, y, o): (String, f32, f32, Option<Table>)| {
+        let Some(s) = e.gfx.sprites.get(&name) else { return Ok(Value::Nil) };
+        let (flip, ox, oy) = match &o {
+            Some(t) => (t.get::<Option<bool>>("flipX")?.unwrap_or(false), t.get::<Option<f32>>("ox")?.unwrap_or(0.0), t.get::<Option<f32>>("oy")?.unwrap_or(0.0)),
+            None => (false, 0.0, 0.0),
+        };
+        let [bx, by, bw, bh] = s.hitbox.unwrap_or([0.0, 0.0, s.w, s.h]);
+        let bx = if flip { s.w - bx - bw } else { bx };
+        let t = l.create_table()?;
+        t.set("x", x - ox * s.w + bx)?;
+        t.set("y", y - oy * s.h + by)?;
+        t.set("w", bw)?;
+        t.set("h", bh)?;
+        Ok(Value::Table(t))
+    });
+    func!("playtest", |e, l, (): ()| match &e.playtest {
+        Some(v) => l.to_value(v),
+        None => Ok(Value::Nil),
+    });
+    func!("__debug_boxes", |e, _l, (): ()| Ok(e.debug_boxes));
+    func!("__particle_preset", |e, l, name: String| match e.particles.get(&name) {
+        Some(v) => l.to_value(v),
+        None => Ok(Value::Nil),
+    });
+
+    // ---------------------------------------------------------------- screen shaders (Fx in std.luau)
+    // 21 numbers in the shader's layout: crt scan vignette aberration | gray sepia invert pixelate |
+    // wave bright contrast saturation | hue posterize noise bloom | glitch | shock x y radius strength
+    func!("__postfx", |e, _l, v: Vec<f32>| {
+        let g = |i: usize| v.get(i).copied().unwrap_or(0.0);
+        let q = |i: usize| [g(i), g(i + 1), g(i + 2), g(i + 3)];
+        e.gfx.post.params = crate::post::Params { a: q(0), b: q(4), c: q(8), d: q(12), glitch: g(16), shock: q(17) };
+        Ok(())
+    });
+    func!("__shader", |e, _l, src: Option<String>| e.gfx.post.set_custom(src.as_deref()).map_err(mlua::Error::runtime));
 
     // ---------------------------------------------------------------- utils
     func!("t", |e, _l, (): ()| Ok(e.time));
@@ -517,7 +608,14 @@ fn register(lua: &Lua, eng: &Shared) -> LuaResult<()> {
     func!("log", |e, l, args: mlua::Variadic<Value>| {
         let parts: Vec<String> = args
             .into_iter()
-            .map(|v| l.coerce_string(v).ok().flatten().map(|s| s.to_string_lossy()).unwrap_or_else(|| "?".into()))
+            .map(|v| match v {
+                Value::Nil => "nil".into(),
+                Value::Boolean(b) => b.to_string(),
+                v => {
+                    let kind = v.type_name();
+                    l.coerce_string(v).ok().flatten().map(|s| s.to_string_lossy()).unwrap_or_else(|| format!("<{kind}>"))
+                }
+            })
             .collect();
         let line = parts.join(" ");
         println!("{line}");

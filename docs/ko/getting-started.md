@@ -1,5 +1,7 @@
 # 10분 안에 첫 게임 만들기
 
+[English](../en/getting-started.md) · **한국어**
+
 게임잼 첫날, 팀원 모두가 Slate를 처음 쓴다고 가정한 안내서다.
 
 ## 1. 템플릿으로 시작하기
@@ -7,7 +9,7 @@
 1. Slate를 설치하고 실행한다 ([Releases](https://github.com/Erzyh/slate-engine/releases)).
 2. **File > New from template > Platformer**를 고르고 이름을 정한다.
 3. **File > Save project as…**로 폴더를 고른다. 이 폴더가 곧 프로젝트다 (Git으로 관리하면 된다).
-4. **Space**(Play)를 누르면 게임이 별도 창으로 뜬다. 방향키로 움직이고 Z로 점프한다.
+4. **Space**(Play)를 누르면 오른쪽 Game 패널에서 게임이 실행된다. 방향키로 움직이고 Z로 점프한다.
 
 템플릿은 세 가지다.
 
@@ -48,8 +50,8 @@ anim:draw(x, y, { flipX = facingLeft })
 
 ## 5. 소리
 
-- 효과음: 탐색기에서 `sounds` 우클릭 → **New sound effect…** → 프리셋 고르고 다듬어서 저장 → `sfx("이름")`.
-- 음악: `.ogg` 파일을 `music/`에 넣고 `music("이름")`.
+- 효과음: 탐색기에서 `sounds` 우클릭 → **New sound effect** → 프리셋 고르고 다듬어서 저장 → `sfx("이름")`.
+- 음악: `music` 우클릭 → **New music**으로 곡을 만들거나, `.ogg` 파일을 `music/`에 넣고 `music("이름")`.
 
 ## 6. 제출하기
 
@@ -75,11 +77,12 @@ anim:draw(x, y, { flipX = facingLeft })
 | 카메라 | `Cam.follow(x, y, dt, { bounds = map })` `Cam.shake(3, 0.2)` `Cam.apply()` … `Cam.reset()` |
 | 시간 | `Timer.after(1, fn)` `Timer.every(0.5, fn)` `Tween.to(obj, 0.3, { y = 10 }, { ease = "outBack" })` |
 | 화면 전환 | `Scene.add("title", { enter, update, draw })` `Scene.go("play", nil, { fade = 0.3 })` |
-| 효과 | `local fx = Particles.new()` `fx:burst(x, y, 20, { colors = {...}, speed = 80 })` |
+| 효과 | `local fx = Particles.new()` `fx:burst(x, y, "explosion")` `Fx.flash()` `Fx.effect("crt", 1)` |
 | 소리 | `sfx("jump")` `music("theme", { fade = 1 })` |
 | 저장 | `save("best", 1200)` `load("best", 0)` |
 | 한글 | `font("erx")` 후 `text("안녕", x, y, c)` |
 | 대화 | `Dialog.say("안녕!", { name = "촌장" })` `Dialog.ask("갈래?", { "응", "아니" }, fn)` `Dialog.draw()` |
 | 메뉴 | `UI.menu(items)` `UI.pause.update()` / `UI.pause.draw()` `UI.toast("저장!")` |
+| 적이 쫓아오기 | `Path.chase(enemy, player.x, player.y, 40, dt, "level1")` |
 
 전체 API는 [게임 코드 API](api.md)에 있다.

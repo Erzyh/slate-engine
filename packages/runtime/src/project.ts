@@ -5,7 +5,7 @@
 //   slate.json            { "name", "title", "resolution": [w, h], "background", "main": "scripts/main.luau" }
 //   scripts/**/*.luau     game code; main runs first, the rest load with require("path/in/scripts")
 //   sprites/**/NAME.png   a sprite: one frame, or a sheet of frames left to right
-//   sprites/**/NAME.json  optional sprite settings: { w, h, count, fps, durations, tags, flags, layers }
+//   sprites/**/NAME.json  optional sprite settings: { w, h, count, fps, durations, tags, flags, box, layers }
 //   sprites/**/NAME.layers.png   editor-only layered source (rows = layers, columns = frames)
 //   maps/**/NAME.json     tile maps (tiles + placed objects)
 //   music/**/NAME.ogg     music(name)      (.ogg or .wav)
@@ -13,7 +13,7 @@
 //
 // packProject() turns the files into a single cartridge for the player and for exports.
 
-import type { Cartridge, SpriteDef, TileMap } from "./cart.ts";
+import { resolveTemplates, type Cartridge, type SpriteDef, type TileMap } from "./cart.ts";
 
 export interface ProjectSettings {
   name: string;
@@ -25,6 +25,10 @@ export interface ProjectSettings {
   fullscreen?: boolean;
   /** the project's own palette colors (editor) */
   palette?: string[];
+  /** particle presets */
+  particles?: Cartridge["particles"];
+  /** object templates */
+  templates?: Cartridge["templates"];
 }
 
 /** Settings stored next to a sprite's PNG (sprites/NAME.json). */
@@ -36,6 +40,12 @@ export interface SpriteMeta {
   durations?: number[];
   tags?: SpriteDef["tags"];
   flags?: number[];
+  /** hitbox [x, y, w, h] */
+  box?: [number, number, number, number];
+  /** autotile terrains: 16 frames each */
+  autotiles?: number[][];
+  /** animated tiles */
+  tileAnims?: { frames: number[]; fps: number }[];
   /** editor-only layer info; pixels in NAME.layers.png (rows = layers, columns = frames) */
   layers?: { name: string; visible: boolean; opacity: number; locked?: boolean; alphaLock?: boolean }[];
 }
@@ -91,6 +101,8 @@ export function packProject(files: Map<string, Uint8Array>): Cartridge {
   if (settings.title) cart.title = settings.title;
   if (settings.fullscreen) cart.fullscreen = true;
   if (settings.palette?.length) cart.palette = settings.palette;
+  if (settings.particles && Object.keys(settings.particles).length) cart.particles = settings.particles;
+  if (settings.templates && Object.keys(settings.templates).length) cart.templates = settings.templates;
   const folderOf = (kind: string, name: string, path: string) => {
     const dir = path.slice(0, path.lastIndexOf("/"));
     if (dir !== kind) cart.folders![`${kind}:${name}`] = dir;
@@ -123,6 +135,9 @@ export function packProject(files: Map<string, Uint8Array>): Cartridge {
       if (meta.durations?.some((d) => d > 0)) def.durations = meta.durations;
       if (meta.tags?.length) def.tags = meta.tags;
       if (meta.flags?.some((f) => f)) def.flags = meta.flags;
+      if (meta.box) def.box = meta.box;
+      if (meta.autotiles?.length) def.autotiles = meta.autotiles;
+      if (meta.tileAnims?.length) def.tileAnims = meta.tileAnims;
       cart.sprites.push(def);
     } else if (top === "maps" && ext === "json") {
       const name = baseName(path);
@@ -137,6 +152,7 @@ export function packProject(files: Map<string, Uint8Array>): Cartridge {
     }
   }
   if (!cart.scripts![cart.main!]) throw new Error(`main script "${cart.main}" not found`);
+  cart.maps = resolveTemplates(cart.maps, cart.templates);
   return cart;
 }
 

@@ -1,5 +1,5 @@
 export { Game, fmt, parseColor, type GameOptions, type SprOptions, type TextOptions, type Color } from "./game.ts";
-export { emptyCartridge, decodeFrame, encodeFrame, type Cartridge, type SpriteDef, type TileMap, type MapLayer, type MapObject } from "./cart.ts";
+export { emptyCartridge, decodeFrame, encodeFrame, TILE_STRIDE, resolveObject, resolveTemplates, type ObjectTemplate, type Cartridge, type ParticlePreset, type SpriteDef, type TileMap, type MapLayer, type MapObject } from "./cart.ts";
 export { beep, sfx } from "./audio.ts";
 export { playerHtml } from "./export.ts";
 export * from "./project.ts";

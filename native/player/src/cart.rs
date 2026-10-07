@@ -33,6 +33,23 @@ pub struct SpriteDef {
     /// per-frame duration in milliseconds (0 or missing = 1/fps)
     #[serde(default)]
     pub durations: Vec<f32>,
+    /// hitbox drawn in the editor: [x, y, w, h] from the sprite's top-left
+    #[serde(default, rename = "box")]
+    pub hitbox: Option<[f32; 4]>,
+    /// tilesets: animated tiles (water, torches): these frames cycle wherever any of them is placed
+    #[serde(default, rename = "tileAnims")]
+    pub tile_anims: Vec<TileAnim>,
+}
+
+#[derive(Deserialize, Clone)]
+pub struct TileAnim {
+    pub frames: Vec<usize>,
+    #[serde(default = "tile_fps")]
+    pub fps: f32,
+}
+
+fn tile_fps() -> f32 {
+    6.0
 }
 
 #[derive(Deserialize, Clone)]
@@ -41,17 +58,39 @@ pub struct MapLayer {
     #[serde(default = "yes")]
     pub visible: bool,
     pub data: Vec<i32>,
+    /// scroll speed relative to the camera ([0.5, 0.5] = background that moves at half speed);
+    /// such layers are scenery: they never collide
+    #[serde(default)]
+    pub parallax: Option<[f32; 2]>,
+    /// repeat sideways forever (backgrounds)
+    #[serde(default, rename = "repeatX")]
+    pub repeat_x: bool,
+}
+
+impl MapLayer {
+    /// Scrolls with the camera (the normal case): the layer the game plays on.
+    pub fn solid_layer(&self) -> bool {
+        self.parallax.is_none_or(|p| p == [1.0, 1.0])
+    }
 }
 
 fn yes() -> bool {
     true
 }
 
-/// A grid of frames from a tileset sprite (one frame = one tile).
+/// Tile values pack the tileset too: value = tileset index * TILE_STRIDE + frame.
+/// Maps with one tileset (all older ones) just hold frame numbers.
+pub const TILE_STRIDE: i32 = 4096;
+
+/// A grid of frames from tileset sprites (one frame = one tile).
 #[derive(Deserialize, Clone)]
 pub struct TileMap {
     pub name: String,
+    /// the first tileset (sets the tile size)
     pub tileset: String,
+    /// every tileset the map uses, in tile-value order; empty = just `tileset`
+    #[serde(default)]
+    pub tilesets: Vec<String>,
     pub w: usize,
     pub h: usize,
     pub layers: Vec<MapLayer>,
@@ -102,6 +141,24 @@ pub struct Cartridge {
     /// music tracks: name -> `data:audio/ogg;base64,...` (OGG Vorbis or WAV)
     #[serde(default)]
     pub music: std::collections::HashMap<String, String>,
+    /// editor "Play from here": { map, x, y }, read by games with playtest()
+    #[serde(default)]
+    pub playtest: Option<serde_json::Value>,
+    /// particle presets from the editor: name -> burst options (fx:burst(x, y, "name"))
+    #[serde(default)]
+    pub particles: std::collections::HashMap<String, serde_json::Value>,
+}
+
+impl TileMap {
+    /// The tileset name and frame of a tile value (None for empty cells).
+    pub fn tile(&self, v: i32) -> Option<(&str, usize)> {
+        if v < 0 {
+            return None;
+        }
+        let set = (v / TILE_STRIDE) as usize;
+        let name = if set == 0 && self.tilesets.is_empty() { Some(&self.tileset) } else { self.tilesets.get(set) };
+        name.map(|n| (n.as_str(), (v % TILE_STRIDE) as usize))
+    }
 }
 
 pub struct Image {

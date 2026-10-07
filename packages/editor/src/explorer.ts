@@ -160,6 +160,12 @@ export class Explorer {
         row.append(nameEl, size);
         active = sel.sprite === name;
         open = () => this.hooks.openSprite(name);
+        // drag onto the map to place it as an object
+        row.draggable = true;
+        row.ondragstart = (e) => {
+          e.dataTransfer?.setData("application/x-slate-sprite", name);
+          if (e.dataTransfer) e.dataTransfer.effectAllowed = "copy";
+        };
       } else {
         row.className = "tree-row file";
         row.innerHTML = `<span class="name"></span><span class="size"></span>`;

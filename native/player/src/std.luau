@@ -337,6 +337,38 @@ function Cam_.apply() camera(math.floor(Cam_.x + Cam_.ox), math.floor(Cam_.y + C
 function Cam_.reset() camera() end
 function Cam_.toWorld(sx, sy) return sx + Cam_.x, sy + Cam_.y end
 
+-- ------------------------------------------------------------------ Debug (editor Game view)
+-- With "Hitboxes" on in the Game view, every box that went through Physics is outlined, and the
+-- solid tiles of the maps it moved on are shaded. Nothing here runs when it is off.
+
+local Debug_ = { on = false, bodies = setmetatable({}, { __mode = "k" }), maps = {} }
+
+function Debug_.track(b, map)
+  if type(b) ~= "table" or b.w == nil then return end
+  Debug_.bodies[b] = t()
+  if map then Debug_.maps[map] = true end
+end
+
+function Debug_.draw()
+  camera(math.floor(Cam_.x + Cam_.ox), math.floor(Cam_.y + Cam_.oy))
+  for map in Debug_.maps do
+    local mi = mapinfo(map)
+    if mi and mi.tw > 0 then
+      local x0, y0 = math.max(0, math.floor(Cam_.x / mi.tw)), math.max(0, math.floor(Cam_.y / mi.th))
+      for ty = y0, math.min(mi.h - 1, y0 + math.ceil(H / mi.th)) do
+        for tx = x0, math.min(mi.w - 1, x0 + math.ceil(W / mi.tw)) do
+          if msolid(map, tx * mi.tw, ty * mi.th, 0) then rect(tx * mi.tw, ty * mi.th, mi.tw, mi.th, "#ff4d6d40") end
+        end
+      end
+    end
+  end
+  local now = t()
+  for b, seen in Debug_.bodies do
+    if now - seen < 0.5 and b.x and b.y then rectline(b.x, b.y, b.w, b.h, "#7cff6b") end
+  end
+  camera()
+end
+
 -- ------------------------------------------------------------------ Physics
 -- Move boxes through a tile map without going into walls (tile flags from the tileset:
 -- bit 0 = solid by default; a "oneway" bit makes jump-through platforms).
@@ -362,6 +394,7 @@ local function edge(from, len, tile)
 end
 
 function Physics_.move(b, dx, dy, map, o)
+  if Debug_.on then Debug_.track(b, map) end
   o = o or {}
   local bit, oneway = o.solid or 0, o.oneway
   local mi = mapinfo(map)
@@ -433,6 +466,7 @@ end
 
 -- standing on something? (solid, or a jump-through platform)
 function Physics_.grounded(b, map, o)
+  if Debug_.on then Debug_.track(b, map) end
   o = o or {}
   for _, px in edge(b.x, b.w, mapinfo(map).tw) do
     if msolid(map, px, b.y + b.h + 0.5, o.solid or 0) or (o.oneway and msolid(map, px, b.y + b.h + 0.5, o.oneway)) then return true end
@@ -441,6 +475,10 @@ function Physics_.grounded(b, map, o)
 end
 
 function Physics_.overlap(a, b)
+  if Debug_.on then
+    Debug_.track(a)
+    Debug_.track(b)
+  end
   return a.x < b.x + b.w and b.x < a.x + a.w and a.y < b.y + b.h and b.y < a.y + a.h
 end
 
@@ -448,6 +486,8 @@ end
 --
 --   local fx = Particles.new()
 --   fx:burst(x, y, 20, { colors = { "#ffcc4d", "#ffffff" }, speed = 120, gravity = 300, life = 0.6, size = 2 })
+--   fx:burst(x, y, "explosion")       -- a preset made in the particle editor (Project -> Particles)
+--   fx:emit(x, y, "smoke", dt)        -- keep emitting (preset's rate per second), e.g. a torch
 --   fx:update(dt)     fx:draw()     (draw inside Cam.apply() for world particles)
 
 local Particles_ = {}
@@ -455,20 +495,55 @@ Particles = Particles_
 Particles_.__index = Particles_
 
 function Particles_.new()
-  return setmetatable({ list = {} }, Particles_)
+  return setmetatable({ list = {}, acc = {} }, Particles_)
 end
 
+-- the options of a preset from the particle editor
+function Particles_.preset(name)
+  local o = __particle_preset(name)
+  if o == nil then error(`Particles: no preset "{name}" (make it in Project -> Particles)`, 3) end
+  return o
+end
+
+-- burst(x, y, n, opts) / burst(x, y, "preset", extra opts?) / burst(x, y, opts)
 function Particles_:burst(x, y, n, o)
+  if type(n) == "string" then
+    local p = Particles_.preset(n)
+    if o then
+      p = table.clone(p)
+      for k, v in o do p[k] = v end
+    end
+    o, n = p, p.count or 20
+  elseif type(n) == "table" then
+    o, n = n, n.count or 20
+  end
   o = o or {}
   local colors = o.colors or { o.color or "#ffffff" }
+  local r = o.radius or 0
   for _ = 1, n do
     local a = (o.angle or -math.pi / 2) + rnd(-(o.spread or math.pi), o.spread or math.pi)
     local v = rnd(0.3, 1) * (o.speed or 80)
     local life = rnd(0.5, 1) * (o.life or 0.6)
+    local ra, rr = rnd(0, math.pi * 2), math.sqrt(rnd()) * r
     table.insert(self.list, {
-      x = x, y = y, vx = math.cos(a) * v, vy = math.sin(a) * v, g = o.gravity or 0, drag = o.drag or 0,
+      x = x + math.cos(ra) * rr, y = y + math.sin(ra) * rr, vx = math.cos(a) * v, vy = math.sin(a) * v, g = o.gravity or 0, drag = o.drag or 0,
       life = life, max = life, c = colors[irnd(1, #colors)], s = o.size or 1, shrink = o.shrink ~= false, add = o.add,
     })
+  end
+end
+
+-- keep emitting at (x, y): call every frame with dt; rate = particles per second (opts.rate)
+function Particles_:emit(x, y, o, dt)
+  local key = o
+  if type(o) == "string" then o = Particles_.preset(o) end
+  local rate = o.rate or 20
+  self.acc[key] = (self.acc[key] or 0) + rate * (dt or 1 / 60)
+  local n = math.floor(self.acc[key])
+  if n > 0 then
+    self.acc[key] -= n
+    local one = table.clone(o)
+    one.count = n
+    self:burst(x, y, one)
   end
 end
 
@@ -500,6 +575,171 @@ end
 
 function Particles_:count()
   return #self.list
+end
+
+-- ------------------------------------------------------------------ Text
+-- Animated text, with effects for the whole string or marked up inside it:
+--
+--   Text.draw("GAME OVER", W / 2, 40, "#ffffff", { align = "center", wave = 2 })
+--   Text.draw("{shake}무서워!{/} 그리고 {rainbow}무지개{/}", 8, 8, "#fff")
+--   local done = Text.draw(story, 8, 60, "#fff", { typing = 30, start = shownAt })  -- typewriter
+--
+-- Markup: {wave} {shake} {rainbow} {blink} {bounce} {#ff0000} {color=#ff0000}, closed by {/}.
+-- A number sets the strength: {wave=4} {shake=2} {rainbow=3}. Dialog text understands it too.
+
+local Text_ = { cache = {}, cached = 0 }
+Text = Text_
+
+local EFFECTS = { wave = true, shake = true, rainbow = true, blink = true, bounce = true }
+
+-- "{wave}hi{/}" -> { { ch = "h", fx = { wave = true } }, ... }
+function Text_.parse(str)
+  str = tostring(str)
+  local hit = Text_.cache[str]
+  if hit then return hit end
+  local out, stack = {}, { {} }
+  local skip = 0
+  for pos, code in utf8.codes(str) do
+    if pos < skip then continue end
+    if code == 123 then -- "{"
+      local close = string.find(str, "}", pos, true)
+      local tag = close and string.sub(str, pos + 1, close - 1)
+      if tag then
+        local top = stack[#stack]
+        local name, val = string.match(tag, "^(%w+)=?(.*)$")
+        if tag == "/" or string.sub(tag, 1, 1) == "/" then
+          if #stack > 1 then table.remove(stack) end
+          skip = close + 1
+          continue
+        elseif string.sub(tag, 1, 1) == "#" or name == "color" then
+          local fx = table.clone(top)
+          fx.color = if name == "color" then val else tag
+          table.insert(stack, fx)
+          skip = close + 1
+          continue
+        elseif name and EFFECTS[name] then
+          local fx = table.clone(top)
+          fx[name] = tonumber(val) or true
+          table.insert(stack, fx)
+          skip = close + 1
+          continue
+        end
+      end
+    end
+    local top = stack[#stack]
+    table.insert(out, { ch = utf8.char(code), fx = if next(top) then top else nil })
+  end
+  -- keep the cache small (dialog lines, HUD strings...)
+  Text_.cached += 1
+  if Text_.cached > 512 then Text_.cache, Text_.cached = {}, 0 end
+  Text_.cache[str] = out
+  return out
+end
+
+-- the text without markup
+function Text_.strip(str)
+  local b = {}
+  for _, c in Text_.parse(str) do table.insert(b, c.ch) end
+  return table.concat(b)
+end
+
+function Text_.len(str) return #Text_.parse(str) end
+
+local function hsv(h)
+  local i = math.floor(h * 6) % 6
+  local f = h * 6 - math.floor(h * 6)
+  local q, u = 1 - f, f
+  local r, g, b
+  if i == 0 then r, g, b = 1, u, 0
+  elseif i == 1 then r, g, b = q, 1, 0
+  elseif i == 2 then r, g, b = 0, 1, u
+  elseif i == 3 then r, g, b = 0, q, 1
+  elseif i == 4 then r, g, b = u, 0, 1
+  else r, g, b = 1, 0, q end
+  return string.format("#%02x%02x%02x", math.floor(r * 255), math.floor(g * 255), math.floor(b * 255))
+end
+
+-- stable jitter for shaking letters (changes 30 times a second)
+local function jitter(i, k)
+  local v = math.sin(i * 12.9898 + k * 78.233) * 43758.5453
+  return (v - math.floor(v)) * 2 - 1
+end
+
+-- how far the pen moves after a letter: its width plus the gap before the next one
+local advances = {}
+local function advance(ch, scale, font)
+  local key = ch .. "|" .. scale .. "|" .. (font or "")
+  local a = advances[key]
+  if a == nil then
+    a = textw(ch .. ch, scale, font) - textw(ch, scale, font)
+    advances[key] = a
+  end
+  return a
+end
+
+function Text_.width(str, o)
+  o = o or {}
+  local chars = Text_.parse(str)
+  local w = 0
+  for i, c in chars do w += if i == #chars then textw(c.ch, o.scale or 1, o.font) else advance(c.ch, o.scale or 1, o.font) end
+  return w
+end
+
+-- draw parsed characters; `count` limits how many show (typewriter). Returns the width drawn.
+function Text_.drawChars(chars, x, y, color, o, count)
+  o = o or {}
+  local now = t()
+  local k = math.floor(now * 30)
+  local scale, font = o.scale or 1, o.font
+  local n = math.min(#chars, count or #chars)
+  local cx = x
+  if o.align == "center" or o.align == "right" then
+    local w = 0
+    for i = 1, #chars do w += if i == #chars then textw(chars[i].ch, scale, font) else advance(chars[i].ch, scale, font) end
+    cx -= if o.align == "center" then math.floor(w / 2) else w
+  end
+  local x0 = cx
+  for i = 1, n do
+    local c = chars[i]
+    local fx = c.fx
+    local wave = (fx and fx.wave) or o.wave
+    local shake = (fx and fx.shake) or o.shake
+    local rainbow = (fx and fx.rainbow) or o.rainbow
+    local blink = (fx and fx.blink) or o.blink
+    local bounce = (fx and fx.bounce) or o.bounce
+    local dx, dy = 0, 0
+    if wave then dy += math.sin(now * 8 - i * 0.6) * (if wave == true then 2 else wave) * scale end
+    if bounce then dy -= math.abs(math.sin(now * 6 - i * 0.4)) * (if bounce == true then 3 else bounce) * scale end
+    if shake then
+      local a = (if shake == true then 1 else shake) * scale
+      dx += jitter(i, k) * a
+      dy += jitter(i + 97, k) * a
+    end
+    -- letters typed just now rise into place
+    if o.typing and o.pop ~= false then
+      local age = now - (o.start or 0) - i / o.typing
+      if age < 0.12 then dy += (1 - math.max(0, age) / 0.12) * 3 * scale end
+    end
+    local col = (fx and fx.color) or color
+    if rainbow then col = hsv((now * 0.5 * (if rainbow == true then 1 else rainbow) + i * 0.07) % 1) end
+    local w = advance(c.ch, scale, font)
+    if not (blink and math.floor(now * 3) % 2 == 0) and c.ch ~= " " then
+      text(c.ch, math.floor(cx + dx + 0.5), math.floor(y + dy + 0.5), col, { scale = scale, font = font, outline = o.outline })
+    end
+    cx += w
+  end
+  return cx - x0
+end
+
+-- Draw a string with effects. With { typing = chars per second, start = t() when it began }
+-- it types itself out; returns true once all of it shows.
+function Text_.draw(str, x, y, color, o)
+  o = o or {}
+  local chars = Text_.parse(str)
+  local count = #chars
+  if o.typing then count = math.max(0, math.floor((t() - (o.start or 0)) * o.typing)) end
+  Text_.drawChars(chars, x, y, color, o, count)
+  return count >= #chars
 end
 
 -- ------------------------------------------------------------------ Dialog
@@ -548,15 +788,32 @@ local function startDialog(entry)
     if info == nil then error(`Dialog: no sprite "{entry.portrait}" for the portrait`, 3) end
     portraitW = info.w + s.padding
   end
-  local pages = {}
+  local pages, styled = {}, {}
   for _, p in entry.pages do
-    local lines = wrap(tostring(p), w - s.padding * 2 - portraitW, 1, s.font)
+    -- wrap the text without markup, then give every line its own styled characters back
+    local chars = Text_.parse(p)
+    local plain = {}
+    for _, c in chars do table.insert(plain, c.ch) end
+    local lines = wrap(table.concat(plain), w - s.padding * 2 - portraitW, 1, s.font)
+    local ci, lineChars = 1, {}
+    for li, line in lines do
+      local list = {}
+      for _, code in utf8.codes(line) do
+        local ch = utf8.char(code)
+        -- skip what wrapping dropped (spaces and line breaks at the ends of lines)
+        while chars[ci] and chars[ci].ch ~= ch do ci += 1 end
+        table.insert(list, chars[ci] or { ch = ch })
+        ci += 1
+      end
+      lineChars[li] = list
+    end
     for i = 1, #lines, s.lines do
       table.insert(pages, { table.unpack(lines, i, math.min(#lines, i + s.lines - 1)) })
+      table.insert(styled, { table.unpack(lineChars, i, math.min(#lines, i + s.lines - 1)) })
     end
   end
-  if #pages == 0 then pages = { { "" } } end
-  dlg = { entry = entry, pages = pages, page = 1, shown = 0, choice = 1, portraitW = portraitW, rects = {} }
+  if #pages == 0 then pages, styled = { { "" } }, { { {} } } end
+  dlg = { entry = entry, pages = pages, styled = styled, page = 1, shown = 0, choice = 1, portraitW = portraitW, rects = {} }
 end
 
 local function nextInQueue()
@@ -654,10 +911,7 @@ function Dialog_.draw()
     local n = utf8.len(line) or #line
     local k = math.min(n, left)
     left -= k
-    if k > 0 then
-      local cut = if k >= n then #line + 1 else utf8.offset(line, k + 1)
-      text(string.sub(line, 1, cut - 1), tx, y + s.padding + (i - 1) * lh, s.text, { font = s.font })
-    end
+    if k > 0 then Text_.drawChars(d.styled[d.page][i], tx, y + s.padding + (i - 1) * lh, s.text, { font = s.font }, k) end
   end
   local done = d.shown >= pageLen(d.pages[d.page])
   local last = d.page == #d.pages
@@ -908,9 +1162,180 @@ function UI_.pause.draw()
   p.menu:draw(W / 2, H / 2 - h / 2 + 28)
 end
 
+-- ------------------------------------------------------------------ Path
+-- Finding the way around walls on a tile map (walls = tiles with flag bit 0, like Physics).
+--
+--   local pts = Path.find("level1", ex, ey, px, py)        -- waypoints { {x, y}, ... } or nil
+--   local dx, dy, d = Path.toward("level1", ex, ey, px, py) -- direction to move now (nil = no way)
+--   Path.chase(enemy, player.x, player.y, 40, dt, "level1") -- move a box toward a point
+--   Path.dist("level1", ex, ey, px, py)                     -- walking distance in tiles, or nil
+--
+-- toward / chase / dist share one distance field per target, so a crowd chasing the player costs
+-- about the same as one enemy. Options: { bit = 0, diagonal = true }.
+
+local Path_ = {}
+Path = Path_
+
+function Path_.find(map, x0, y0, x1, y1, o) return __path_find(map, x0, y0, x1, y1, o) end
+function Path_.toward(map, x, y, tx, ty, o) return __path_toward(map, x, y, tx, ty, o) end
+function Path_.dist(map, x, y, tx, ty, o) return __path_dist(map, x, y, tx, ty, o) end
+
+-- Move box b (x, y = top-left, w, h) toward (tx, ty) at speed px/s, sliding along walls.
+-- Returns the Physics hit table, and false when there is no way there.
+function Path_.chase(b, tx, ty, speed, dt, map, o)
+  local cx, cy = b.x + b.w / 2, b.y + b.h / 2
+  local dx, dy = __path_toward(map, cx, cy, tx, ty, o)
+  if dx == nil then return nil, false end
+  -- don't overshoot a target that is closer than one step
+  local step = math.min(speed * dt, math.sqrt((tx - cx) ^ 2 + (ty - cy) ^ 2))
+  return Physics_.move(b, dx * step, dy * step, map, o and { solid = o.bit } or nil), true
+end
+
+-- ------------------------------------------------------------------ Fx
+-- Whole-screen effects drawn over the game (after draw(), so HUDs get them too).
+--
+--   Fx.flash("#ffffff", 0.1)        -- a quick flash that fades out (hits, explosions)
+--   Fx.fade("#000000", 0.5, done)   -- fade to a color and stay there; Fx.fade(nil, 0.5) fades back
+--   Fx.freeze(0.06)                 -- hit-stop: the game holds still for a moment
+--   Fx.tint("#1a2a6c", 0.35)        -- tint the screen (night, underwater); Fx.tint() clears it
+--
+-- Screen shaders (on the whole image, smooth on any window size):
+--   Fx.effect("crt", 1)             -- turn one on (0..1, some take bigger numbers), 0 / nil turns it off
+--   Fx.effect("grayscale", 1, 0.5)  -- ...fading over 0.5 s
+--   Fx.effect({ vignette = 0.6, bloom = 0.5 })
+--   Fx.shockwave(x, y)              -- a ring of distortion from a point (map / world pixels)
+--   Fx.glitch(0.3)                  -- digital glitch for a moment
+--   Fx.shader(glsl)                 -- your own fragment shader (main(); uv, Texture, time, resolution)
+--   Fx.reset()
+-- Effects: crt scanlines vignette aberration grayscale sepia invert pixelate wave
+--          brightness contrast saturation hue posterize noise bloom
+
+local Fx_ = { flashC = "#ffffff", flashT = 0, flashD = 0, fadeC = "#000000", fadeA = 0, fadeFrom = 0, fadeTo = 0, fadeT = 0, fadeD = 0, tintC = nil, tintA = 0, freezeT = 0,
+  values = {}, fades = {}, waves = {}, glitchT = 0, glitchK = 0, glitchD = 0, dirty = true }
+Fx = Fx_
+
+-- uniform slot of each effect, and its "off" value
+local SLOT = { crt = 1, scanlines = 2, vignette = 3, aberration = 4, grayscale = 5, sepia = 6, invert = 7, pixelate = 8,
+  wave = 9, brightness = 10, contrast = 11, saturation = 12, hue = 13, posterize = 14, noise = 15, bloom = 16 }
+local NEUTRAL = { brightness = 1, contrast = 1, saturation = 1 }
+
+-- "#rgb" / "#rrggbb" + alpha 0..1 -> "#rrggbbaa"
+local function withAlpha(c, a)
+  if type(c) ~= "string" or c:sub(1, 1) ~= "#" then return c end
+  if #c == 4 then c = "#" .. c:sub(2, 2):rep(2) .. c:sub(3, 3):rep(2) .. c:sub(4, 4):rep(2) end
+  return c:sub(1, 7) .. string.format("%02x", math.floor(clamp(a, 0, 1) * 255 + 0.5))
+end
+
+function Fx_.flash(color, time)
+  Fx_.flashC, Fx_.flashD = color or "#ffffff", time or 0.12
+  Fx_.flashT = Fx_.flashD
+end
+
+function Fx_.fade(color, time, onDone)
+  if color then Fx_.fadeC = color end
+  Fx_.fadeFrom, Fx_.fadeTo = Fx_.fadeA, if color then 1 else 0
+  Fx_.fadeD, Fx_.fadeT, Fx_.fadeDone = time or 0.4, 0, onDone
+end
+
+function Fx_.tint(color, amount) Fx_.tintC, Fx_.tintA = color, amount or 0.3 end
+function Fx_.freeze(time) Fx_.freezeT = math.max(Fx_.freezeT, time or 0.06) end
+
+local function effectValue(name) return Fx_.values[name] or NEUTRAL[name] or 0 end
+
+-- Fx.effect(name, value, fadeTime) or Fx.effect({ name = value, ... }, fadeTime)
+function Fx_.effect(name, value, time)
+  if type(name) == "table" then
+    for n, v in name do Fx_.effect(n, v, value) end
+    return
+  end
+  if SLOT[name] == nil then error(`Fx.effect: no effect "{name}"`, 2) end
+  local to = if value == nil or value == false then (NEUTRAL[name] or 0) elseif value == true then 1 else value
+  if time and time > 0 then
+    Fx_.fades[name] = { from = effectValue(name), to = to, t = 0, d = time }
+  else
+    Fx_.fades[name] = nil
+    Fx_.values[name] = to
+  end
+  Fx_.dirty = true
+end
+
+function Fx_.crt(on, strength) Fx_.effect("crt", if on == false then 0 else (strength or 1)) end
+
+function Fx_.shockwave(x, y, o)
+  o = o or {}
+  table.insert(Fx_.waves, { x = x - Cam_.x - Cam_.ox, y = y - Cam_.y - Cam_.oy, r = 0, speed = o.speed or 180, size = o.size or math.max(W, H) * 0.6, strength = o.strength or 1 })
+end
+
+function Fx_.glitch(time, strength)
+  Fx_.glitchT, Fx_.glitchD, Fx_.glitchK = time or 0.3, time or 0.3, strength or 1
+end
+
+function Fx_.shader(src) __shader(src) end
+
+function Fx_.reset()
+  Fx_.values, Fx_.fades, Fx_.waves = {}, {}, {}
+  Fx_.glitchT, Fx_.tintC, Fx_.fadeA, Fx_.flashT = 0, nil, 0, 0
+  Fx_.dirty = true
+  __shader(nil)
+end
+
+function Fx_.update(dt)
+  if Fx_.flashT > 0 then Fx_.flashT = math.max(0, Fx_.flashT - dt) end
+  for name, f in Fx_.fades do
+    f.t = math.min(f.d, f.t + dt)
+    Fx_.values[name] = lerp(f.from, f.to, Ease_.outQuad(f.t / f.d))
+    if f.t >= f.d then Fx_.fades[name] = nil end
+    Fx_.dirty = true
+  end
+  for i = #Fx_.waves, 1, -1 do
+    local w = Fx_.waves[i]
+    w.r += w.speed * dt
+    if w.r > w.size then table.remove(Fx_.waves, i) end
+    Fx_.dirty = true
+  end
+  if Fx_.glitchT > 0 then
+    Fx_.glitchT = math.max(0, Fx_.glitchT - dt)
+    Fx_.dirty = true
+  end
+  if Fx_.fadeD > 0 and Fx_.fadeT < Fx_.fadeD then
+    Fx_.fadeT = math.min(Fx_.fadeD, Fx_.fadeT + dt)
+    Fx_.fadeA = lerp(Fx_.fadeFrom, Fx_.fadeTo, Fx_.fadeT / Fx_.fadeD)
+    if Fx_.fadeT >= Fx_.fadeD and Fx_.fadeDone then
+      local f = Fx_.fadeDone
+      Fx_.fadeDone = nil
+      f()
+    end
+  end
+end
+
+function Fx_.draw()
+  if Fx_.tintC and Fx_.tintA > 0 then rect(0, 0, W, H, withAlpha(Fx_.tintC, Fx_.tintA)) end
+  -- shader values, sent when something changed
+  if Fx_.dirty then
+    Fx_.dirty = false
+    local v = table.create(21, 0)
+    for name, slot in SLOT do v[slot] = effectValue(name) end
+    v[17] = if Fx_.glitchD > 0 then Fx_.glitchK * Fx_.glitchT / Fx_.glitchD else 0
+    local w = Fx_.waves[#Fx_.waves]
+    if w then
+      v[18], v[19], v[20], v[21] = w.x / W, w.y / H, w.r / H, w.strength * (1 - w.r / w.size)
+    end
+    __postfx(v)
+  end
+  if Fx_.fadeA > 0 then rect(0, 0, W, H, withAlpha(Fx_.fadeC, Fx_.fadeA)) end
+  if Fx_.flashT > 0 then rect(0, 0, W, H, withAlpha(Fx_.flashC, Fx_.flashT / Fx_.flashD)) end
+end
+
 -- ------------------------------------------------------------------ the engine ticks these before update(dt)
 -- (the library keeps private references, so a game may reuse a name like UI or Timer for its own globals)
 function __slate_tick(dt)
+  Debug_.on = __debug_boxes()
+  Fx_.update(dt)
+  -- hit-stop: skip this tick's update entirely
+  if Fx_.freezeT > 0 then
+    Fx_.freezeT -= dt
+    return true
+  end
   UI_.update(dt)
   -- the pause screen stops game time (timers, tweens, camera shake, dialogs)
   if UI_.pause.open then return end
@@ -918,4 +1343,11 @@ function __slate_tick(dt)
   Tween_.update(dt)
   Cam_.update(dt)
   Dialog_.update(dt)
+end
+
+-- ... and draw this over the game after draw()
+function __slate_post()
+  camera()
+  Fx_.draw()
+  if Debug_.on then Debug_.draw() end
 end

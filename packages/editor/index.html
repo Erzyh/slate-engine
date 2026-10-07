@@ -19,6 +19,7 @@
         <symbol id="i-select" viewBox="0 0 16 16"><path d="M2.5 2.5h11v11h-11z" stroke-dasharray="2 2" /></symbol>
         <symbol id="i-lasso" viewBox="0 0 16 16"><path d="M5.2 10.6C3.4 9.9 2.5 8.6 2.5 7.2c0-2.6 2.5-4.7 5.6-4.7s5.4 2 5.4 4.4-2.4 4.2-5.4 4.2c-.8 0-1.6-.1-2.3-.3" stroke-dasharray="2 1.6" /><path d="M5.2 10.6c-.9.9-.8 2.2.3 2.6.9.3 1.4 1 1 1.8" /></symbol>
         <symbol id="i-wand" viewBox="0 0 16 16"><path d="M2.5 13.5l7-7M8.5 5.5l2 2" /><path d="M11.5 1.8v2.4M10.3 3h2.4M13.8 6.3v1.8M12.9 7.2h1.8M6 2.2v1.6M5.2 3h1.6" /></symbol>
+        <symbol id="i-hitbox" viewBox="0 0 16 16"><path d="M5 2.5h6M5 13.5h6M2.5 5v6M13.5 5v6" /><path d="M2.5 2.5h1M12.5 2.5h1M2.5 13.5h1M12.5 13.5h1" /><path d="M6 6h4v4H6z" fill="currentColor" stroke="none" opacity=".45" /></symbol>
         <symbol id="i-brush-sq" viewBox="0 0 16 16"><path d="M4 4h8v8H4z" fill="currentColor" stroke="none" /></symbol>
         <symbol id="i-brush-round" viewBox="0 0 16 16"><circle cx="8" cy="8" r="4.6" fill="currentColor" stroke="none" /></symbol>
         <symbol id="i-object" viewBox="0 0 16 16"><path d="M8 2l5 3v6l-5 3-5-3V5zM8 8v6M3 5l5 3 5-3" /></symbol>
@@ -68,7 +69,7 @@
           <button id="btn-new-file" class="icon-btn ghost" title="New script, sprite, map, sound or folder"><svg><use href="#i-plus" /></svg></button>
         </div>
         <div id="explorer" class="explorer"></div>
-        <input type="file" id="import-input" multiple accept=".png,.ogg,.wav,.luau,.lua,.json" hidden />
+        <input type="file" id="import-input" multiple accept=".png,.aseprite,.ase,.ogg,.wav,.luau,.lua,.json" hidden />
       </aside>
 
       <main class="workspace">
@@ -104,6 +105,11 @@
               <button class="ghost" data-sel="rot-cw" title="Rotate 90° clockwise">Rotate</button>
               <button class="ghost" data-sel="invert" title="Invert the selection (Ctrl+Shift+I)">Invert</button>
             </div>
+            <div class="opt-group hidden" id="opt-hitbox">
+              <span id="hitbox-info" class="opt-hint mono"></span>
+              <button class="ghost" id="hitbox-fit" title="Fit the box around the drawn pixels of every frame">Fit to pixels</button>
+              <button class="ghost" id="hitbox-clear" title="No hitbox: the game uses the whole sprite">Clear</button>
+            </div>
             <span id="opt-hint" class="opt-hint"></span>
           </div>
           <div class="editor-body">
@@ -122,6 +128,8 @@
                 <button data-tool="select" title="Rectangle select (M) · Shift adds, Alt subtracts"><svg><use href="#i-select" /></svg></button>
                 <button data-tool="lasso" title="Lasso (Q) · draw around what to select"><svg><use href="#i-lasso" /></svg></button>
                 <button data-tool="wand" title="Magic wand (W) · selects an area of one color"><svg><use href="#i-wand" /></svg></button>
+                <div class="tool-sep"></div>
+                <button data-tool="hitbox" title="Hitbox (H) · the collision box game code reads with hitbox()"><svg><use href="#i-hitbox" /></svg></button>
               </div>
               <div class="viewbar">
                 <label class="toggle"><input type="checkbox" id="grid" checked /><span>Grid</span></label>
@@ -195,6 +203,8 @@
             <button id="map-rename" class="ghost">Rename</button>
             <button id="map-resize" class="ghost">Resize</button>
             <button id="map-del" class="ghost" title="Delete map">Delete</button>
+            <span class="opt-sep"></span>
+            <button id="map-play-here" class="ghost" title="Play from here (P) · click on the map where the player should start">Play from here</button>
           </div>
           <div class="editor-body">
             <div class="canvas-wrap" id="map-wrap">
@@ -223,18 +233,32 @@
             </div>
             <div class="side">
               <div class="side-panel tileset-panel">
-                <div class="panel-head"><span>Tiles</span></div>
-                <select id="map-tileset" class="tileset-select"></select>
+                <div class="panel-head">
+                  <span>Tiles</span>
+                  <span class="spacer"></span>
+                  <button id="map-tileset-add" class="icon-btn ghost" title="Add a tileset to this map · its tiles paint over the same map"><svg><use href="#i-plus" /></svg></button>
+                </div>
+                <div id="map-tilesets" class="ts-tabs"></div>
                 <div class="tile-palette-wrap"><canvas id="tile-palette"></canvas></div>
-                <label class="check solid" title="Flag 0 · check it in code with msolid(map, x, y) or fget(sprite, tile)"><input type="checkbox" id="tile-solid" /> Solid (selected tiles)</label>
+                <div class="tile-opts">
+                  <label class="check" title="Flag 0 · check it in code with msolid(map, x, y) or fget(sprite, tile)"><input type="checkbox" id="tile-solid" /> Solid</label>
+                  <label class="check" title="Autotile tiles pick their edge and corner pieces from their neighbors · right click a 4×4 block in the palette to make one"><input type="checkbox" id="map-auto" checked /> Autotile</label>
+                </div>
               </div>
               <div class="side-panel objects-panel">
                 <div class="panel-head"><span>Object</span><span id="obj-count" class="count"></span></div>
+                <div class="obj-templates" id="obj-templates"></div>
                 <div class="obj-form">
+                  <div id="obj-tpl-note" class="obj-note hidden"></div>
                   <label>Type <input id="obj-type" value="enemy" spellcheck="false" /></label>
                   <label>Sprite <select id="obj-sprite"></select></label>
                   <label class="props">Props <textarea id="obj-props" spellcheck="false" placeholder="hp=10&#10;path=sine"></textarea></label>
-                  <div class="obj-actions"><span id="obj-pos" class="muted"></span><div class="spacer"></div><button id="obj-del" class="ghost" title="Delete the selected object (Del)">Delete</button></div>
+                  <div class="obj-actions">
+                    <span id="obj-pos" class="muted"></span><div class="spacer"></div>
+                    <button id="obj-tpl-save" class="ghost" title="Make a template from this object: place it anywhere, change it in one place">Save as template</button>
+                    <button id="obj-tpl-detach" class="ghost hidden" title="Keep this one as a normal object, no longer linked to its template">Detach</button>
+                    <button id="obj-del" class="ghost" title="Delete the selected object (Del)">Delete</button>
+                  </div>
                 </div>
               </div>
               <div class="side-panel layers">
@@ -284,6 +308,16 @@
           <button id="game-restart" class="icon-btn ghost" title="Restart with the latest code (Ctrl+Enter)"><svg><use href="#i-restart" /></svg></button>
           <button id="game-window" class="ghost" title="Run the game in its own window instead">Open in window</button>
           <button id="game-close" class="icon-btn ghost" title="Hide the game view"><svg><use href="#i-close" /></svg></button>
+        </div>
+        <div class="game-debug">
+          <button id="game-pause" class="ghost" title="Stop game time (F6)">Pause</button>
+          <button id="game-step" class="ghost" title="Advance one frame while paused (F7)" disabled>Step</button>
+          <span class="vb-sep"></span>
+          <button id="game-shot" class="ghost" title="Save the current frame as a PNG (F8)">Screenshot</button>
+          <button id="game-rec" class="ghost" title="Record a GIF of the game (F9) · press again to stop and save">Record GIF</button>
+          <span class="spacer"></span>
+          <label class="toggle" title="Outline every box that goes through Physics and shade solid tiles"><input type="checkbox" id="game-boxes" /><span>Hitboxes</span></label>
+          <label class="toggle" title="Frame rate and draw count"><input type="checkbox" id="game-stats" /><span>Stats</span></label>
         </div>
         <div id="game-host" class="game-host">
           <div class="game-empty">
@@ -477,6 +511,47 @@
           <div class="spacer"></div>
           <button id="sfx-cancel">Close</button>
           <button id="sfx-save" class="primary">Save to sounds</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- particle editor ------------------------------------------------------------------------- -->
+    <div id="particle-dialog" class="modal hidden">
+      <div class="modal-box audio-box">
+        <div class="modal-head">
+          <h2>Particles</h2>
+          <div class="spacer"></div>
+          <button id="pt-close" class="icon-btn ghost" title="Close"><svg><use href="#i-close" /></svg></button>
+        </div>
+        <div class="audio-body">
+          <div class="audio-left">
+            <div class="section-label">Presets</div>
+            <div class="preset-list" id="pt-list"></div>
+            <div class="preset-tools">
+              <button id="pt-new" title="A new preset">New</button>
+              <button id="pt-del" title="Delete this preset">Delete</button>
+            </div>
+            <div class="section-label">Start from</div>
+            <div class="preset-list" id="pt-templates"></div>
+          </div>
+          <div class="audio-main" id="pt-editor">
+            <div class="pt-view">
+              <canvas id="pt-canvas"></canvas>
+              <span class="pt-hint muted small">Click to burst here</span>
+            </div>
+            <div class="section-label">Colors</div>
+            <div class="pt-colors" id="pt-colors"></div>
+            <div class="slider-grid" id="pt-sliders"></div>
+            <div class="pt-toggles">
+              <label class="check" title="Particles get smaller as they fade"><input type="checkbox" id="pt-shrink" /> Shrink</label>
+              <label class="check" title="Additive blending: overlapping particles glow"><input type="checkbox" id="pt-add" /> Glow</label>
+            </div>
+          </div>
+        </div>
+        <div class="modal-foot">
+          <span class="muted small mono" id="pt-code"></span>
+          <div class="spacer"></div>
+          <button id="pt-done" class="primary">Done</button>
         </div>
       </div>
     </div>

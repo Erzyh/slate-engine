@@ -90,4 +90,5 @@ end
 Scene.add("clear", endScreen("LEVEL CLEAR!", "#a7f070"))
 Scene.add("over", endScreen("GAME OVER", "#b13e53"))
 
-Scene.go("title")
+-- "Play from here" in the Map tab skips the title (the editor moves the "start" object)
+Scene.go(if playtest() then "play" else "title")

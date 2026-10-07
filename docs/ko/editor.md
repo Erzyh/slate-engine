@@ -1,5 +1,7 @@
 # 에디터
 
+[English](../en/editor.md) · **한국어**
+
 ## 프로젝트 = 폴더
 
 프로젝트는 평범한 파일들이 담긴 폴더다. Git으로 관리하고, 다른 그림 툴이나 텍스트 에디터로 열어도 된다.
@@ -13,7 +15,7 @@ my-game/
     enemies/beetle.luau   → require("enemies/beetle")
   sprites/                스프라이트 = PNG 한 장 (프레임이 여러 개면 가로로 이어 붙인 시트)
     hero.png
-    hero.json             (선택) { "w", "h", "fps", "durations", "tags", "flags", "layers" }
+    hero.json             (선택) { "w", "h", "fps", "durations", "tags", "flags", "box", "layers" }
     hero.layers.png       (선택) 에디터용 레이어 원본 (행 = 레이어, 열 = 프레임)
   maps/level1.json        타일맵 + 배치한 오브젝트
   music/theme.ogg         music("theme")
@@ -23,6 +25,7 @@ my-game/
 - 하위 폴더는 정리용이다. 스프라이트/맵/소리의 이름은 파일 이름이다 (`sprites/enemies/beetle.png` → `spr("beetle", ...)`).
 - 에디터에서 지운 파일은 저장할 때 프로젝트 안의 `.slate-trash/` 로 옮겨진다 (바로 삭제되지 않음).
 - `.slate` 파일 = 프로젝트 전체를 한 파일로 묶은 카트리지 (예제, 공유, 실행용). File > Import로 열 수 있다.
+- `slate.json`에는 프로젝트 팔레트, 파티클 프리셋, 오브젝트 템플릿도 저장된다.
 
 ## 화면 구성
 
@@ -32,7 +35,9 @@ my-game/
 | Pixel | 픽셀 에디터 (아래 표) |
 | Map | 타일맵 칠하기 + 오브젝트 배치 |
 | Code | 파일별 탭, Luau 문법 강조, 줄 번호, API·`require` 경로 자동완성, 찾기(`Ctrl+F`). 아래 **콘솔**에 게임의 `log()` 출력과 에러가 나오고, 에러를 클릭하면 그 파일의 그 줄로 이동 |
-| Play (`Space`) | 게임이 별도 창으로 실행된다. 도트·맵 수정은 **게임을 끄지 않고** 바로 반영, 코드는 `Ctrl+Enter`로 재시작 |
+| Play (`Space`) | 게임이 오른쪽 **Game 패널**에서 실행된다 (View → Play in the Game view를 끄면 별도 창). 도트·맵 수정은 **게임을 끄지 않고** 바로 반영, 코드는 `Ctrl+Enter`로 재시작 |
+| Game 패널 녹화 | Screenshot(`F8`): 지금 화면을 PNG로. Record GIF(`F9`): 다시 누르면 멈추고 GIF로 저장 (최대 20초, 보기 좋게 확대됨). itch.io 페이지·홍보용 |
+| Game 패널 | Pause / Step(`F6` / `F7`): 게임 시간을 멈추고 한 프레임씩 넘긴다. Hitboxes: `Physics`를 거친 박스를 초록 테두리로, 단단한 타일을 빨갛게 보여 준다. Stats: FPS와 그리기 수 |
 | File | 새 프로젝트, 폴더 열기(`Ctrl+O`), 다른 이름으로 저장, `.slate` 가져오기. `Ctrl+S` 저장(바뀐 파일만 씀) |
 | Export | Windows 게임(.exe, 단독 실행 파일 하나), 웹 게임(itch.io용 .zip), 카트리지(.slate) |
 
@@ -40,10 +45,12 @@ my-game/
 
 | 기능 | 내용 |
 |---|---|
-| 도구 | 펜 `B`, 지우개 `E`, 채우기 `G`(Shift: 같은 색 전부), 스포이트 `I`, 직선 `L`, 사각형 `U`, 원 `O`(Shift: 채움), 사각형 선택 `M`, 올가미 `Q`, 마술봉 `W` |
+| 도구 | 펜 `B`, 지우개 `E`, 채우기 `G`(Shift: 같은 색 전부), 스포이트 `I`, 직선 `L`, 사각형 `U`, 원 `O`(Shift: 채움), 사각형 선택 `M`, 올가미 `Q`, 마술봉 `W`, 충돌 박스 `H` |
+| 충돌 박스 | Hitbox 도구로 끌어서 그린다 (안쪽을 끌면 이동, 핸들로 크기). Fit to pixels = 그려진 픽셀에 딱 맞게. 코드에서 `hitbox("hero", x, y)` |
+| 가져오기 | Sprite → Import Aseprite file: `.aseprite` / `.ase`의 레이어, 프레임 시간, 태그를 그대로 가져온다 |
 | 펜 옵션 | 브러시 크기 `[` `]`, 사각형/원형 브러시, 픽셀 퍼펙트, 디더, 좌우/상하 대칭, 밝은 배경(Light BG) |
 | 선택 | Shift: 영역 추가, Alt: 영역 빼기. 마술봉은 같은 색 영역(Contiguous를 끄면 그 색 전부). 선택하면 그 안에만 칠해진다 |
-| 선택 영역 편집 | 안쪽을 끌어 이동, 방향키로 1px 이동, 모서리 핸들로 크기 조절(Shift: 비율 유지), 뒤집기/90° 회전, 채우기 `Alt+Backspace`, 지우기 `Del`, 반전 `Ctrl+Shift+I`, `Ctrl+C/X/V`, `Ctrl+A`, `Esc` |
+| 선택 영역 편집 | 안쪽을 끌어 이동, 방향키로 1px 이동, 모서리 핸들로 크기 조절(Shift: 비율 유지), 위쪽 동그란 손잡이로 자유 회전(Shift: 15° 단위, 픽셀이 깨지지 않게 다듬어 돌린다), 뒤집기/90° 회전, 스프라이트 바깥 빈 곳을 클릭하면 선택 해제, 채우기 `Alt+Backspace`, 지우기 `Del`, 반전 `Ctrl+Shift+I`, `Ctrl+C/X/V`, `Ctrl+A`, `Esc` |
 | 화면 | 휠: 확대/축소(커서 기준), Shift+휠: 가로 스크롤, 휠 버튼 드래그: 화면 이동 |
 | 레이어 | 추가/복제/삭제/순서/병합, 보이기, 불투명도, 잠금, 투명 잠금(칠해진 픽셀만 칠해짐, 음영용) |
 | 프레임 | 추가/복제/삭제/이동, 어니언 스킨, `,` `.` 로 이동, `Enter` 로 재생 |
@@ -53,17 +60,34 @@ my-game/
 | Sheet… | 스프라이트 시트 PNG + JSON(Aseprite 형식) 내보내기, GIF, 시트 가져오기 |
 | 되돌리기 | `Ctrl+Z` / `Ctrl+Shift+Z` |
 
+## 파티클 편집기
+
+Project → Particles. 왼쪽 Start from(폭발, 반짝임, 타격, 먼지, 연기, 불)에서 시작해서 슬라이더로 다듬는다. 미리보기를 클릭하면 그 자리에서 터진다. 만든 프리셋은 `slate.json`에 저장되고 코드에서 `fx:burst(x, y, "이름")` (Rate가 있으면 `fx:emit(x, y, "이름", dt)`)로 쓴다.
+
+## 코드 편집기
+
+- 자동완성: `Path.`까지 치면 그 모듈의 함수가, `spr("`·`map("`·`sfx("`·`music("`·`Fx.effect("`·`Scene.go("` 안에서는 프로젝트의 스프라이트·맵·소리·효과·장면 이름이 나온다.
+- 함수 이름에 마우스를 올리면 사용법과 설명이 뜬다.
+
 ## 맵 에디터
 
 - **타일셋 = 프레임이 여러 개인 스프라이트** (프레임 1개 = 타일 1개). 타일 플래그(bit 0 = 단단함 등)는 `sprites/tiles.json`의 `flags`.
 - **Map 탭**: 칠하기 `B`, 지우기 `E`(우클릭), 채우기 `G`, 사각형 `U`, 스포이트 `I`. 팔레트에서 Shift+드래그로 여러 타일 브러시. 맵 레이어 여러 개. 휠로 확대/축소, 휠 버튼 드래그로 화면 이동.
+- **타일셋 여러 개**: Tiles 옆 `+`로, 또는 파일 목록의 스프라이트를 Tiles 칸으로 끌어다 놓아 타일셋을 더한다 (타일 크기가 같은 것만). 위의 탭으로 칠할 타일셋을 고르고, 이미 칠한 타일은 바뀌지 않는다. 탭 우클릭 → 맵에서 빼기.
+- **오토타일**: 16칸을 4×4로 그린다 (왼쪽 위 3×3 = 넓은 면의 모서리·가장자리·가운데, 오른쪽 열 = 1칸 폭 기둥의 위·가운데·아래, 아래 행 = 1칸 높이 발판의 왼쪽·가운데·오른쪽, 오른쪽 아래 = 홀로). 팔레트에서 그 4×4를 Shift+드래그로 고르고 우클릭 → Make autotile. Autotile이 켜져 있으면 그중 아무 타일로 칠해도 이웃에 맞는 조각이 알아서 골라진다.
+- **움직이는 타일**: 팔레트에서 프레임이 될 타일들을 Shift+드래그로 고르고 우클릭 → Make animated tile. 그 타일들이 놓인 곳마다 차례로 바뀐다 (물, 용암, 횃불).
+- **배경 레이어**: 레이어를 더블클릭(또는 우클릭 → Layer settings) → Scroll speed. 0.5면 카메라의 절반 속도로 움직이는 먼 배경, 0이면 고정. Repeat sideways를 켜면 가로로 끝없이 반복된다. 배경 레이어는 충돌하지 않는다.
+- **오브젝트 템플릿**: 오브젝트를 고르고 Save as template → Object 칸에 템플릿이 생긴다. 템플릿을 누르고 맵을 클릭하거나 맵으로 끌어다 놓으면 복사본이 놓이고, 템플릿의 종류·스프라이트를 바꾸면 모든 복사본이 바뀐다. Props 칸은 그 복사본만의 값. Detach = 일반 오브젝트로.
+- **스프라이트 끌어다 놓기**: 왼쪽 파일 목록의 스프라이트를 맵 위로 끌어다 놓으면 그 자리에 오브젝트로 놓인다 (종류 = 스프라이트 이름).
+- **Play from here** (`P`): 맵에서 시작할 곳을 클릭하면 거기서 게임이 시작된다 ([API](api.md#play-from-here-테스트)).
 - **오브젝트 도구 `O`**: 적/아이템/시작점을 맵에 놓는다. 클릭 = 배치, 드래그 = 이동, 우클릭/`Del` = 삭제. Type, Sprite, Props(`hp=10`) 편집. 코드에서 `for _, o in objects("level1", "enemy") do ... end`.
 
 ## 소리
 
 - 효과음: `sounds/`에 `.wav`/`.ogg`를 넣고 `sfx("이름")`.
-- **효과음 만들기**: 탐색기에서 `sounds` 우클릭 → *New sound effect…*. 프리셋(coin, laser, explosion, powerup, hit, jump, blip)을 고르고 슬라이더로 다듬거나 Mutate / Random → *Save to sounds/* (`.wav`). 탐색기에서 소리 파일을 클릭하면 들어볼 수 있다.
-- 음악: `music/`에 `.ogg`/`.wav`를 넣고 `music("이름")`.
+- **효과음 만들기**: 탐색기에서 `sounds` 우클릭 → *New sound effect*. 프리셋(coin, laser, explosion, powerup, hit, jump, blip)을 고르고 슬라이더로 다듬거나 Mutate / Random → *Save to sounds/* (`.wav`). 탐색기에서 소리 파일을 클릭하면 들어볼 수 있다.
+- **음악 만들기**: 탐색기에서 `music` 우클릭 → *New music*. 스타일을 고르고 마음에 들 때까지 New melody를 누른 뒤, 곡과 악기를 다듬어 저장한다.
+- 음악 파일: `music/`에 `.ogg`/`.wav`를 넣고 `music("이름")`.
 
 ## Grid Stamp와 플러그인
 
@@ -97,4 +121,5 @@ File > **New from template**로 바로 돌아가는 게임 하나를 받아서 �
 - itch.io: 새 프로젝트 > Kind of project = **HTML** > zip 업로드 > "This file will be played in the browser" 체크 > Viewport는 해상도의 정수배 (320×180이면 960×540).
 - 첫 화면에서 클릭이나 키 입력을 한 번 받는다 (브라우저는 그 전에는 소리를 낼 수 없다).
 - 저장(`save`)은 브라우저에 남는다.
+- 휴대폰·태블릿에서는 화면에 방향 패드와 A / B / START 버튼이 나온다.
 - 최신 Chrome, Edge, Firefox, Safari(18.4 이상)에서 동작한다.

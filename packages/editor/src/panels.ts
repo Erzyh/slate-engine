@@ -31,7 +31,7 @@ const DIR_MARK: Record<TagDir, string> = { forward: "", reverse: "rev", pingpong
 const TAG_COLORS = ["#7ee2b8", "#8ab4ff", "#f09bd0", "#ffcd75", "#c3a6ff", "#ff9f80", "#7fd7e8"];
 const TOOL_NAME: Record<Tool, string> = {
   pen: "Pen", eraser: "Eraser", fill: "Fill", picker: "Color picker", line: "Line", rect: "Rectangle", ellipse: "Ellipse",
-  select: "Select", lasso: "Lasso", wand: "Magic wand",
+  select: "Select", lasso: "Lasso", wand: "Magic wand", hitbox: "Hitbox",
 };
 const TOOL_HINT: Partial<Record<Tool, string>> = {
   fill: "Shift+click replaces that color everywhere",
@@ -41,6 +41,7 @@ const TOOL_HINT: Partial<Record<Tool, string>> = {
   select: "Shift adds · Alt subtracts · drag inside to move · handles resize",
   lasso: "Shift adds · Alt subtracts · drag inside to move · handles resize",
   wand: "Shift adds · Alt subtracts · drag inside to move · handles resize",
+  hitbox: "Drag to draw the collision box · in code: hitbox(\"name\", x, y)",
 };
 /** frame thumbnail width + gap (tag bars line up with it) */
 const FRAME_STEP = 48;
@@ -76,6 +77,7 @@ export class PixelPanels {
     ed.onCursor = (x, y, sel) => {
       this.cursor = [x, y];
       this.showInfo(sel);
+      if (ed.tool === "hitbox") this.showHitbox();
     };
     ed.onPalette = (colors) => hooks.paletteChanged(colors);
   }
@@ -101,6 +103,7 @@ export class PixelPanels {
     this.renderTags();
     this.updateZoom();
     this.showColor();
+    this.showHitbox();
     this.cursor = null;
     this.showInfo(null);
   }
@@ -151,7 +154,15 @@ export class PixelPanels {
     $("opt-mirror").classList.toggle("hidden", !(brush || t === "fill" || t === "rect" || t === "ellipse"));
     $("opt-select").classList.toggle("hidden", !isSelectTool(t));
     $("opt-contiguous").classList.toggle("hidden", t !== "wand");
+    $("opt-hitbox").classList.toggle("hidden", t !== "hitbox");
+    this.showHitbox();
     $("opt-hint").textContent = TOOL_HINT[t] ?? "";
+  }
+
+  /** The hitbox numbers in the options bar. */
+  showHitbox() {
+    const b = this.ed.hitbox;
+    $("hitbox-info").textContent = b ? `x ${b.x}  y ${b.y}  w ${b.w}  h ${b.h}` : "none: the whole sprite";
   }
 
   private updateZoom() {
@@ -184,6 +195,21 @@ export class PixelPanels {
     }
     check("wand-contiguous", (v) => (ed.wandContiguous = v));
     for (const b of $("opt-select").querySelectorAll<HTMLElement>("button[data-sel]")) b.onclick = () => this.command(`sel-${b.dataset.sel}`);
+    $("hitbox-clear").onclick = () => { ed.setHitbox(null); this.showHitbox(); };
+    $("hitbox-fit").onclick = () => {
+      // the box around the visible pixels of every frame
+      const s = this.sprite;
+      if (!s) return;
+      let x0 = s.w, y0 = s.h, x1 = -1, y1 = -1;
+      for (let f = 0; f < s.frameCount; f++) {
+        const d = s.flat(f).data;
+        for (let y = 0; y < s.h; y++)
+          for (let x = 0; x < s.w; x++)
+            if (d[(y * s.w + x) * 4 + 3]) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
+      }
+      if (x1 >= 0) ed.setHitbox({ x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 });
+      this.showHitbox();
+    };
     const view = canvasView($("canvas-wrap"), $<HTMLCanvasElement>("pixel-canvas"), {
       zoom: () => ed.zoom,
       setZoom: (z) => ed.setZoom(z),
@@ -739,7 +765,7 @@ export class PixelPanels {
       return false;
     }
     if (e.altKey && e.key === "Backspace") { this.command("fill-selection"); return true; }
-    const tools: Record<string, Tool> = { b: "pen", e: "eraser", g: "fill", i: "picker", l: "line", u: "rect", o: "ellipse", m: "select", q: "lasso", w: "wand" };
+    const tools: Record<string, Tool> = { b: "pen", e: "eraser", g: "fill", i: "picker", l: "line", u: "rect", o: "ellipse", m: "select", q: "lasso", w: "wand", h: "hitbox" };
     if (tools[k]) { this.setTool(tools[k]); return true; }
     switch (e.key) {
       case "[": this.setBrush(ed.brush - 1); return true;

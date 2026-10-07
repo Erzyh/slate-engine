@@ -15,6 +15,20 @@ extern "C" {
     fn slate_cart_poll() -> u32;
     /// editor game view: the current script error ("" = fixed)
     fn slate_error(text: *const u8, len: u32);
+    /// editor game view: debug flags when they changed (bit 31 set), else 0
+    fn slate_debug_poll() -> u32;
+    /// editor game view: one captured frame (RGBA rows) for a GIF or a screenshot
+    fn slate_frame(px: *const u8, len: u32, w: u32, h: u32);
+}
+
+pub fn send_frame(w: u32, h: u32, px: &[u8]) {
+    unsafe { slate_frame(px.as_ptr(), px.len() as u32, w, h) }
+}
+
+/// New debug flags from the editor, if they changed.
+pub fn poll_debug() -> Option<u32> {
+    let d = unsafe { slate_debug_poll() };
+    (d & (1 << 31) != 0).then_some(d & !(1 << 31))
 }
 
 /// The cartridge the page loaded (game.slate next to index.html).

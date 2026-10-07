@@ -27,6 +27,15 @@ pub struct Engine {
     pub fullscreen: bool,
     rng: u64,
     save_dir: PathBuf,
+    /// bumps whenever map tiles change (path caches compare it)
+    pub map_version: u64,
+    pub paths: crate::path::Cache,
+    /// editor Game view debugging: hitbox overlay
+    pub debug_boxes: bool,
+    /// editor "Play from here": { map, x, y }
+    pub playtest: Option<serde_json::Value>,
+    /// particle presets (Particles.preset)
+    pub particles: HashMap<String, serde_json::Value>,
 }
 
 /// Default actions: arrows / WASD / d-pad / left stick to move, A B X Y like a gamepad.
@@ -66,39 +75,78 @@ impl Engine {
             fullscreen: false,
             rng: seed | 1,
             save_dir: save_dir(cart_name),
+            map_version: 0,
+            paths: Default::default(),
+            debug_boxes: false,
+            playtest: None,
+            particles: HashMap::new(),
         }
     }
 
     pub fn set_maps(&mut self, maps: &[crate::cart::TileMap]) {
         self.maps = maps.iter().map(|m| (m.name.clone(), m.clone())).collect();
+        self.map_version += 1;
+    }
+
+    /// Tile size of a map (its first tileset's frame size).
+    pub fn tile_size(&self, m: &crate::cart::TileMap) -> Option<(f32, f32)> {
+        let t = self.gfx.sprites.get(&m.tileset)?;
+        (t.w > 0.0 && t.h > 0.0).then_some((t.w, t.h))
+    }
+
+    /// Flag bits of a tile value on a map (0 for empty cells).
+    pub fn tile_flags(&self, m: &crate::cart::TileMap, v: i32) -> u32 {
+        m.tile(v).and_then(|(set, f)| self.gfx.sprites.get(set).and_then(|s| s.flags.get(f).copied())).unwrap_or(0)
+    }
+
+    /// Is tile cell (tx, ty) solid (flag `bit` on any layer)? Outside the map counts as solid.
+    pub fn cell_solid(&self, m: &crate::cart::TileMap, tx: i64, ty: i64, bit: u32) -> bool {
+        if tx < 0 || ty < 0 || tx as usize >= m.w || ty as usize >= m.h {
+            return true;
+        }
+        let i = ty as usize * m.w + tx as usize;
+        m.layers.iter().any(|l| l.solid_layer() && (self.tile_flags(m, l.data.get(i).copied().unwrap_or(-1)) >> bit) & 1 == 1)
     }
 
     /// Draw a map's visible layers (or just `layer`) with its top-left at (x, y); on-screen tiles only.
     pub fn draw_map(&mut self, name: &str, x: f32, y: f32, layer: Option<&mlua::Value>, tint: [u8; 4]) {
         let Some(m) = self.maps.get(name) else { return };
-        let Some(t) = self.gfx.sprites.get(&m.tileset) else { return };
-        if t.w <= 0.0 || t.h <= 0.0 {
-            return;
-        }
-        let (tw, th) = (t.w, t.h);
-        let (ox, oy) = ((x - self.gfx.cam_x).round(), (y - self.gfx.cam_y).round());
-        let tx0 = (-ox / tw).floor().max(0.0) as usize;
-        let ty0 = (-oy / th).floor().max(0.0) as usize;
-        let tx1 = (((self.gfx.width as f32 - ox) / tw).ceil().max(0.0) as usize).min(m.w);
-        let ty1 = (((self.gfx.height as f32 - oy) / th).ceil().max(0.0) as usize).min(m.h);
+        let Some((tw, th)) = self.tile_size(m) else { return };
         let pick: Vec<usize> = match layer {
             Some(v) => map_layer(m, v).into_iter().collect(),
             None => (0..m.layers.len()).filter(|&i| m.layers[i].visible).collect(),
         };
+        let (sw, sh) = (self.gfx.width as f32, self.gfx.height as f32);
+        let map_w = m.w as f32 * tw;
         // collect quads first: the map and the renderer live in the same struct
         let mut quads = Vec::new();
         for &li in &pick {
-            let data = &m.layers[li].data;
-            for ty in ty0..ty1 {
-                for tx in tx0..tx1 {
-                    let v = data.get(ty * m.w + tx).copied().unwrap_or(-1);
-                    if v >= 0 && (v as usize) < t.frames.len() {
-                        quads.push((t.frames[v as usize], ox + tx as f32 * tw, oy + ty as f32 * th));
+            let l = &m.layers[li];
+            // parallax layers follow the camera more slowly (or faster)
+            let [px, py] = l.parallax.unwrap_or([1.0, 1.0]);
+            let (ox, oy) = ((x - self.gfx.cam_x * px).round(), (y - self.gfx.cam_y * py).round());
+            let ty0 = (-oy / th).floor().max(0.0) as usize;
+            let ty1 = (((sh - oy) / th).ceil().max(0.0) as usize).min(m.h);
+            // repeating layers: every copy of the map that reaches the screen
+            let copies: Vec<f32> = if l.repeat_x && map_w > 0.0 {
+                let first = (-ox / map_w).floor();
+                let last = ((sw - ox) / map_w).floor();
+                (first as i64..=last as i64).map(|k| ox + k as f32 * map_w).collect()
+            } else {
+                vec![ox]
+            };
+            for cx in copies {
+                let tx0 = (-cx / tw).floor().max(0.0) as usize;
+                let tx1 = (((sw - cx) / tw).ceil().max(0.0) as usize).min(m.w);
+                for ty in ty0..ty1 {
+                    for tx in tx0..tx1 {
+                        let v = l.data.get(ty * m.w + tx).copied().unwrap_or(-1);
+                        let Some((set, f)) = m.tile(v) else { continue };
+                        if let Some(t) = self.gfx.sprites.get(set) {
+                            if let Some(r) = t.frames.get(t.tile_frame(f, self.time)) {
+                                quads.push((*r, cx + tx as f32 * tw, oy + ty as f32 * th));
+                            }
+                        }
                     }
                 }
             }

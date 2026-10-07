@@ -8,44 +8,12 @@ import { lua } from "@codemirror/legacy-modes/mode/lua";
 import { highlightSelectionMatches, search, searchKeymap } from "@codemirror/search";
 import { EditorState, StateEffect, StateField, type Extension } from "@codemirror/state";
 import {
-  Decoration, drawSelection, EditorView, highlightActiveLine, highlightActiveLineGutter, keymap, lineNumbers, type DecorationSet,
+  Decoration, drawSelection, EditorView, highlightActiveLine, highlightActiveLineGutter, hoverTooltip, keymap, lineNumbers, type DecorationSet,
 } from "@codemirror/view";
+import { API, EFFECT_NAMES, NAME_ARGS, SFX_PRESETS } from "./api-docs.ts";
 import { tags as t } from "@lezer/highlight";
 
-/** The Slate API for completion: name -> signature / help. */
-const API: [string, string][] = [
-  ["spr", "spr(name, x, y, { frame, anim, scale, sx, sy, rot, ox, oy, flipX, flipY, alpha, tint, add })"],
-  ["rect", "rect(x, y, w, h, color)"], ["rectline", "rectline(x, y, w, h, color)"], ["line", "line(x0, y0, x1, y1, color)"],
-  ["circ", "circ(x, y, r, color, filled?)"], ["text", "text(s, x, y, color, { align, scale, outline })"], ["textw", "textw(s, scale?, font?)"], ["font", "font(\"erx\" | \"erx_b\" | \"erx_gl\" | \"pico\") -> previous font"],
-  ["cls", "cls(color)"], ["camera", "camera(x?, y?)"], ["blend", "blend(\"add\" | nil)"], ["sprite", "sprite(name) -> { w, h, frames, fps, tags, durations }"],
-  ["map", "map(name, x, y, { layer, tint })"], ["mget", "mget(map, tx, ty, layer?)"], ["mset", "mset(map, tx, ty, tile, layer?)"],
-  ["mapinfo", "mapinfo(map) -> { w, h, tw, th }"], ["msolid", "msolid(map, px, py, bit?)"], ["fget", "fget(tileset, tile, bit?)"],
-  ["objects", "objects(map, type?) -> placed objects { id, type, x, y, props... }"],
-  ["btn", "btn(action) -- held: left right up down a b x y start select (keyboard + gamepad)"], ["btnp", "btnp(action) -- pressed this frame"],
-  ["bind", "bind(action, { \"z\", \"space\", \"pad_a\" })"], ["axis", "axis(\"x\" | \"y\" | \"rx\" | \"ry\" | \"lt\" | \"rt\") -> -1..1"], ["pad", "pad() -> gamepad name or nil"],
-  ["fullscreen", "fullscreen(on?) -> is fullscreen (F11 / Alt+Enter too)"],
-  ["key", "key(name) -- held"], ["keyp", "keyp(name) -- pressed this frame"], ["hit", "hit(x, y, w, h) -- mouse over"],
-  ["mouse", "mouse.x, mouse.y, mouse.down, mouse.pressed, mouse.released, mouse.wheel"],
-  ["t", "t() -- seconds since start"], ["now", "now() -- wall clock"], ["rnd", "rnd(a?, b?)"], ["irnd", "irnd(a, b)"],
-  ["pick", "pick(list)"], ["clamp", "clamp(v, lo, hi)"], ["lerp", "lerp(a, b, k)"], ["fmt", "fmt(n) -- 1.23K"],
-  ["save", "save(key, value)"], ["load", "load(key, fallback)"], ["wipe", "wipe(key)"],
-  ["sfx", "sfx(name, volume?) -- sounds/ file or a preset"], ["beep", "beep(freq, dur, wave, vol, slide)"],
-  ["music", "music(name, { volume, loop, fade }) / music(nil)"], ["musicname", "musicname()"],
-  ["log", "log(...) -- shows in the console"], ["require", "require(\"path/in/scripts\")"],
-  ["Anim", "Anim.new(sprite, tag) -- :play(tag, { loop, onEnd }) :update(dt) :draw(x, y, opts) .frame .done"],
-  ["Timer", "Timer.after(sec, fn) / Timer.every(sec, fn, count?) / Timer.cancel(h)"],
-  ["Tween", "Tween.to(obj, sec, { x = 10 }, { ease, delay, onDone, onUpdate })"], ["Ease", "Ease.outCubic(t) ... linear in/out/inOut Quad Cubic Sine, inBack outBack outElastic outBounce"],
-  ["Scene", "Scene.add(name, { enter, leave, update, draw }) / Scene.go(name, args?, { fade, color })"],
-  ["Cam", "Cam.follow(x, y, dt, { lerp, bounds = map, lookX, lookY }) Cam.shake(amount, time) Cam.apply() Cam.reset()"],
-  ["Physics", "Physics.move(box, dx, dy, map, { solid, oneway }) -> { left, right, up, down } / Physics.grounded / Physics.overlap"],
-  ["Dialog", "Dialog.say(text | {pages}, { name, portrait, onDone }) / Dialog.ask(text, {choices}, fn(i)) / Dialog.active() / Dialog.draw()"],
-  ["UI", "UI.menu(items):update()/:draw(x, y)  UI.pause.update()/draw()  UI.button(label, x, y, w, h)  UI.bar(x, y, w, h, v, max, color)  UI.toast(msg)"],
-  ["wrap", "wrap(text, width, scale?, font?) -> lines"], ["texth", "texth(scale?, font?) -> line height"],
-  ["volume", "volume(\"music\" | \"sfx\", v?) -> 0..1"],
-  ["Particles", "local fx = Particles.new(); fx:burst(x, y, n, { colors, speed, life, angle, spread, gravity, drag, size }); fx:update(dt); fx:draw()"],
-  ["W", "screen width"], ["H", "screen height"],
-  ["init", "function init() -- once at start"], ["update", "function update(dt) -- 60 times a second"], ["draw", "function draw()"],
-];
+const LUA_WORDS = new Set(["and", "break", "continue", "do", "else", "elseif", "end", "false", "for", "function", "if", "in", "local", "nil", "not", "or", "repeat", "return", "then", "true", "until", "while", "type", "typeof", "self"]);
 
 const highlight = HighlightStyle.define([
   { tag: t.keyword, color: "#c792ea" },
@@ -73,8 +41,16 @@ const theme = EditorView.theme({
   ".cm-selectionMatch": { background: "#2f5aa840", outline: "1px solid #2f5aa880" },
   ".cm-cursor": { borderLeftColor: "#ffcc4d" },
   ".cm-errorLine": { background: "#4a1a2a" },
-  ".cm-tooltip": { background: "#20212a", border: "1px solid #363948", color: "#e7e8ee" },
+  ".cm-tooltip": { background: "#20212a", border: "1px solid #363948", color: "#e7e8ee", borderRadius: "6px", boxShadow: "0 6px 18px #0008" },
+  ".cm-tooltip-autocomplete ul": { fontFamily: "var(--mono)", fontSize: "12px", maxHeight: "16em" },
+  ".cm-tooltip-autocomplete ul li": { padding: "2px 8px !important" },
   ".cm-tooltip-autocomplete ul li[aria-selected]": { background: "#2c4a86" },
+  ".cm-completionDetail": { color: "#8b8fa3", fontStyle: "normal", marginLeft: "1.2em" },
+  ".cm-completionMatchedText": { textDecoration: "none", color: "#ffcd75" },
+  ".cm-tooltip.cm-completionInfo": { padding: "8px 10px", maxWidth: "420px", whiteSpace: "pre-wrap", fontFamily: "Pretendard, sans-serif", fontSize: "12px", lineHeight: "1.5" },
+  ".cm-api-tip": { padding: "8px 10px", maxWidth: "460px", fontSize: "12px", lineHeight: "1.5" },
+  ".cm-api-tip .sig": { fontFamily: "var(--mono)", color: "#82aaff", whiteSpace: "pre-wrap" },
+  ".cm-api-tip .doc": { color: "#c9cbd6", marginTop: "4px" },
   ".cm-panels": { background: "#1b1c23", color: "#e7e8ee" },
   ".cm-searchMatch": { background: "#5a4d7a66" },
 }, { dark: true });
@@ -104,6 +80,29 @@ export interface CodeHooks {
   save(): void;
   /** script paths, for require completion */
   scripts(): string[];
+  /** project names for completing string arguments: spr("...", map("...", sfx("... */
+  names(kind: "sprites" | "maps" | "sounds" | "music" | "particles"): string[];
+}
+
+/** Completion entry for an API name. */
+function apiOption(name: string, label = name) {
+  const [sig, doc] = API[name];
+  const isModule = /^[A-Z]\w*$/.test(name) && Object.keys(API).some((k) => k.startsWith(name + "."));
+  return {
+    label,
+    type: isModule ? "namespace" : /^[A-Z]/.test(name) && !name.includes(".") ? "constant" : "function",
+    detail: sig.length > 60 ? sig.slice(0, 58) + "…" : sig,
+    info: `${sig}\n\n${doc}`,
+    boost: isModule ? 1 : 0,
+  };
+}
+
+/** The dotted name under the cursor (e.g. "Path.find"), with its range. */
+function wordAt(text: string, pos: number) {
+  let a = pos, b = pos;
+  while (a > 0 && /[\w.]/.test(text[a - 1])) a--;
+  while (b < text.length && /\w/.test(text[b])) b++;
+  return { from: a, to: b, word: text.slice(a, b) };
 }
 
 export class CodeEditor {
@@ -118,6 +117,8 @@ export class CodeEditor {
   }
 
   private complete = (ctx: CompletionContext): CompletionResult | null => {
+    const line = ctx.state.doc.lineAt(ctx.pos);
+    const before = line.text.slice(0, ctx.pos - line.from);
     // require("...") paths
     const req = ctx.matchBefore(/require\(["'][\w/.-]*/);
     if (req) {
@@ -127,14 +128,69 @@ export class CodeEditor {
         options: this.hooks.scripts().map((p) => ({ label: p.replace(/^scripts\//, "").replace(/\.luau$/, ""), type: "text", detail: p })),
       };
     }
-    const word = ctx.matchBefore(/[\w.]+/);
+    // names inside quotes: spr("hero"  map("level1"  sfx("coin"  Fx.effect("crt"  Scene.go("play"
+    for (const [re, kind] of NAME_ARGS) {
+      const m = before.match(re);
+      if (!m) continue;
+      const typed = before.match(/[\w-]*$/)![0];
+      let names: string[];
+      if (kind === "effects") names = EFFECT_NAMES;
+      else if (kind === "scenes") names = [...ctx.state.doc.toString().matchAll(/Scene\.add\(\s*["']([\w-]+)/g)].map((x) => x[1]);
+      else if (kind === "sounds") names = [...this.hooks.names("sounds"), ...SFX_PRESETS];
+      else names = this.hooks.names(kind);
+      return { from: ctx.pos - typed.length, options: [...new Set(names)].map((n) => ({ label: n, type: "text", detail: kind })), validFor: /^[\w-]*$/ };
+    }
+    // Module.member
+    const dotted = ctx.matchBefore(/[A-Z]\w*\.\w*/);
+    if (dotted) {
+      const [mod] = dotted.text.split(".");
+      const members = Object.keys(API).filter((k) => k.startsWith(mod + "."));
+      if (members.length) {
+        return { from: dotted.from + mod.length + 1, options: members.map((k) => apiOption(k, k.slice(mod.length + 1))), validFor: /^\w*$/ };
+      }
+    }
+    const word = ctx.matchBefore(/\w+/);
     if (!word || (word.from === word.to && !ctx.explicit)) return null;
-    return {
-      from: word.from,
-      options: API.map(([label, info]) => ({ label, type: /^[A-Z]/.test(label) ? "class" : "function", info, detail: info.split(" --")[0] })),
-      validFor: /^[\w.]*$/,
-    };
+    // API names, then the words already in this file (variables, functions)
+    const api = Object.keys(API).filter((k) => !k.includes(".")).map((k) => apiOption(k));
+    const seen = new Set(Object.keys(API));
+    const own: { label: string; type: string }[] = [];
+    for (const m of ctx.state.doc.toString().matchAll(/\b[A-Za-z_]\w{2,}\b/g)) {
+      const w = m[0];
+      if (seen.has(w) || m.index === word.from || LUA_WORDS.has(w)) continue;
+      seen.add(w);
+      own.push({ label: w, type: "variable" });
+    }
+    return { from: word.from, options: [...api, ...own], validFor: /^\w*$/ };
   };
+
+  /** Hover a name: its signature and what it does. */
+  private hover = hoverTooltip((view, pos) => {
+    const line = view.state.doc.lineAt(pos);
+    const { from, to, word } = wordAt(line.text, pos - line.from);
+    let name = word;
+    // "Path.find" or just "find" after "Path."
+    while (name && !API[name] && name.includes(".")) name = name.slice(name.indexOf(".") + 1);
+    if (!name || !API[name]) return null;
+    const [sig, doc] = API[name];
+    return {
+      pos: line.from + from,
+      end: line.from + to,
+      above: true,
+      create: () => {
+        const dom = document.createElement("div");
+        dom.className = "cm-api-tip";
+        const a = document.createElement("div");
+        a.className = "sig";
+        a.textContent = sig;
+        const b = document.createElement("div");
+        b.className = "doc";
+        b.textContent = doc;
+        dom.append(a, b);
+        return { dom };
+      },
+    };
+  }, { hoverTime: 350 });
 
   private makeState(path: string, doc: string): EditorState {
     const ext: Extension[] = [
@@ -142,7 +198,8 @@ export class CodeEditor {
       closeBrackets(), highlightActiveLine(), highlightSelectionMatches(), search({ top: true }),
       StreamLanguage.define(lua), syntaxHighlighting(highlight), theme, errorField,
       EditorState.tabSize.of(2),
-      autocompletion({ override: [this.complete] }),
+      autocompletion({ override: [this.complete], icons: false }),
+      this.hover,
       keymap.of([
         { key: "Mod-Enter", run: () => (this.hooks.run(), true) },
         { key: "Mod-s", run: () => (this.hooks.save(), true) },

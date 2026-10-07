@@ -1,7 +1,7 @@
 // Start screen: new project, open a folder, recent projects, templates and examples (with a preview
 // drawn from each project's first map screen).
 
-import type { Cartridge, SpriteDef } from "@slate/runtime";
+import { TILE_STRIDE, type Cartridge, type SpriteDef } from "@slate/runtime";
 import { example, template } from "./examples.ts";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -67,7 +67,11 @@ async function preview(cart: Cartridge, c: HTMLCanvasElement) {
       for (let tx = 0; tx < m.w && tx * ts.w < w; tx++) {
         const v = layer.data[ty * m.w + tx];
         if (v < 0) continue;
-        if (!tiles.has(v)) tiles.set(v, await frameOf(ts, v));
+        if (!tiles.has(v)) {
+          // tile values pack the tileset when a map uses several
+          const set = sprites.get((m.tilesets?.length ? m.tilesets : [m.tileset])[Math.floor(v / TILE_STRIDE)]);
+          tiles.set(v, set ? await frameOf(set, v % TILE_STRIDE) : null);
+        }
         const f = tiles.get(v);
         if (f) g.drawImage(f[0], f[1], f[2], ts.w, ts.h, ox + tx * ts.w, ty * ts.h, ts.w, ts.h);
       }

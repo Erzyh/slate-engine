@@ -10,7 +10,9 @@
   /** editor game view: runs inside the editor (cartridge and edits arrive by postMessage) */
   let embed = false;
   let pending = null;
-  const toEditor = (msg) => parent.postMessage({ slate: true, ...msg }, "*");
+  // debug flags from the editor's Game view (bit 0 hitboxes, 1 paused, 2 step once, 3 stats)
+  let debugFlags = null;
+  const toEditor = (msg, transfer) => parent.postMessage({ slate: true, ...msg }, "*", transfer);
   const mem = () => wasm_memory.buffer;
   const bytes = (ptr, len) => new Uint8Array(mem(), ptr, len);
   const str = (ptr, len) => new TextDecoder().decode(bytes(ptr, len));
@@ -75,6 +77,18 @@
       pending = null;
       return cart.length;
     },
+    slate_debug_poll() {
+      if (debugFlags === null) return 0;
+      // the player keeps the state; a step request (bit 2) is delivered once
+      const d = debugFlags;
+      debugFlags = null;
+      return (d | 0x80000000) >>> 0;
+    },
+    slate_frame(p, n, w, h) {
+      if (!embed) return;
+      const px = bytes(p, n).slice();
+      toEditor({ type: "frame", w, h, px: px.buffer }, [px.buffer]);
+    },
     slate_error(p, n) { if (embed) toEditor({ type: "error", text: str(p, n) }); },
     slate_store_set(k, kl, v, vl) { try { localStorage.setItem(str(k, kl), str(v, vl)); } catch {} },
     slate_store_get(k, kl) {
@@ -91,10 +105,13 @@
       const p = pads.find((x) => x.mapping === "standard") ?? pads[0];
       const out = new Float32Array(mem(), dst, 20);
       out.fill(0);
-      if (!p) return 0;
-      for (let i = 0; i < 16 && i < p.buttons.length; i++) out[i] = p.buttons[i].value || (p.buttons[i].pressed ? 1 : 0);
-      for (let i = 0; i < 4 && i < p.axes.length; i++) out[16 + i] = p.axes[i];
-      return 1;
+      if (p) {
+        for (let i = 0; i < 16 && i < p.buttons.length; i++) out[i] = p.buttons[i].value || (p.buttons[i].pressed ? 1 : 0);
+        for (let i = 0; i < 4 && i < p.axes.length; i++) out[16 + i] = p.axes[i];
+      }
+      // the on-screen controls count as a gamepad too
+      if (touch.on) for (let i = 0; i < 16; i++) out[i] = Math.max(out[i], touch.b[i]);
+      return p || touch.on ? 1 : 0;
     },
     // C clock() (Luau's os.clock), nanoseconds in wasi-libc
     clock: () => BigInt(Math.round(performance.now() * 1e6)),
@@ -110,6 +127,7 @@
   });
 
   async function start(wasmUrl) {
+    touchControls();
     register_plugins(plugins);
     const module = await WebAssembly.compileStreaming(fetch(wasmUrl));
     // stub any env import nobody provides (not the WASI ones, which come from the proxy above)
@@ -134,6 +152,10 @@
     let started = false;
     window.addEventListener("message", (e) => {
       const m = e.data;
+      if (m && m.slate === true && m.type === "debug") {
+        debugFlags = m.flags | 0;
+        return;
+      }
       if (!m || m.slate !== true || m.type !== "cart") return;
       const b = new Uint8Array(m.bytes);
       if (!started) {
@@ -148,12 +170,96 @@
     toEditor({ type: "ready" });
   }
 
+  // ---------------------------------------------------------------- touch controls
+  // Phones and tablets get an on-screen d-pad, A, B and Start. They drive the gamepad buttons
+  // (standard mapping), so games need no changes: btn("left"), btn("a")... just work.
+  // ?touch=1 shows them anywhere, ?touch=0 never.
+  const touch = { on: false, b: new Float32Array(16) };
+  const PAD = { up: 12, down: 13, left: 14, right: 15, a: 0, b: 1, start: 9 };
+
+  function touchControls() {
+    const force = new URLSearchParams(location.search).get("touch");
+    const coarse = matchMedia("(pointer: coarse)").matches && navigator.maxTouchPoints > 0;
+    if (force === "0" || (!coarse && force !== "1")) return;
+    touch.on = true;
+    const css = document.createElement("style");
+    css.textContent = `
+      .tc { position: fixed; z-index: 10; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; }
+      .tc-pad { left: max(16px, env(safe-area-inset-left)); bottom: max(16px, env(safe-area-inset-bottom)); width: 132px; height: 132px; border-radius: 50%; background: #ffffff1c; border: 2px solid #ffffff30; }
+      .tc-pad::before, .tc-pad::after { content: ""; position: absolute; left: 50%; top: 50%; background: #ffffff38; border-radius: 6px; transform: translate(-50%, -50%); }
+      .tc-pad::before { width: 38px; height: 100px; }
+      .tc-pad::after { width: 100px; height: 38px; }
+      .tc-knob { position: absolute; left: 50%; top: 50%; width: 46px; height: 46px; margin: -23px 0 0 -23px; border-radius: 50%; background: #ffffff55; transition: transform .05s; z-index: 1; }
+      .tc-btn { width: 66px; height: 66px; border-radius: 50%; background: #ffffff1c; border: 2px solid #ffffff40; color: #ffffffb0; font: 600 20px/62px system-ui, sans-serif; text-align: center; }
+      .tc-btn.on, .tc-start.on { background: #ffffff50; }
+      .tc-a { right: max(20px, env(safe-area-inset-right)); bottom: max(54px, env(safe-area-inset-bottom)); }
+      .tc-b { right: calc(max(20px, env(safe-area-inset-right)) + 76px); bottom: max(16px, env(safe-area-inset-bottom)); }
+      .tc-start { left: 50%; top: max(10px, env(safe-area-inset-top)); transform: translateX(-50%); padding: 5px 14px; border-radius: 14px; background: #ffffff1c; border: 2px solid #ffffff30; color: #ffffffa0; font: 600 12px system-ui, sans-serif; letter-spacing: 1px; }
+    `;
+    document.head.appendChild(css);
+    const el = (cls, text = "") => {
+      const d = document.createElement("div");
+      d.className = `tc ${cls}`;
+      d.textContent = text;
+      document.body.appendChild(d);
+      return d;
+    };
+    // d-pad: the direction from its center (8 ways, with a dead zone in the middle)
+    const pad = el("tc-pad");
+    const knob = document.createElement("div");
+    knob.className = "tc-knob";
+    pad.appendChild(knob);
+    const setDir = (dx, dy) => {
+      const len = Math.hypot(dx, dy);
+      const on = len > 0.28;
+      const a = Math.atan2(dy, dx);
+      const near = (t) => Math.abs(Math.atan2(Math.sin(a - t), Math.cos(a - t))) < Math.PI * 0.375;
+      touch.b[PAD.right] = on && near(0) ? 1 : 0;
+      touch.b[PAD.down] = on && near(Math.PI / 2) ? 1 : 0;
+      touch.b[PAD.left] = on && near(Math.PI) ? 1 : 0;
+      touch.b[PAD.up] = on && near(-Math.PI / 2) ? 1 : 0;
+      const k = Math.min(1, len);
+      knob.style.transform = on ? `translate(${(dx / (len || 1)) * k * 40}px, ${(dy / (len || 1)) * k * 40}px)` : "";
+    };
+    const track = (node, down, move, up) => {
+      node.addEventListener("pointerdown", (e) => {
+        e.preventDefault();
+        try { node.setPointerCapture(e.pointerId); } catch {}
+        down(e);
+      });
+      node.addEventListener("pointermove", (e) => { if (e.buttons || node.hasPointerCapture(e.pointerId)) move(e); });
+      const end = () => up();
+      node.addEventListener("pointerup", end);
+      node.addEventListener("pointercancel", end);
+      node.addEventListener("lostpointercapture", end);
+    };
+    const fromPad = (e) => {
+      const r = pad.getBoundingClientRect();
+      setDir((e.clientX - r.left - r.width / 2) / (r.width / 2), (e.clientY - r.top - r.height / 2) / (r.height / 2));
+    };
+    track(pad, fromPad, fromPad, () => setDir(0, 0));
+    const button = (cls, text, index) => {
+      const b = el(cls, text);
+      track(b, () => { touch.b[index] = 1; b.classList.add("on"); if (navigator.vibrate) navigator.vibrate(8); }, () => {}, () => { touch.b[index] = 0; b.classList.remove("on"); });
+    };
+    button("tc-btn tc-a", "A", PAD.a);
+    button("tc-btn tc-b", "B", PAD.b);
+    button("tc-start", "START", PAD.start);
+    // no page scrolling / zooming while playing
+    document.addEventListener("touchmove", (e) => e.preventDefault(), { passive: false });
+  }
+
   // a game, not a web page: no browser context menu, no reload / print / find / page zoom
   window.addEventListener("contextmenu", (e) => e.preventDefault());
   window.addEventListener("keydown", (e) => {
     const k = e.key.toLowerCase();
     const mod = e.ctrlKey || e.metaKey;
     if (e.key === "F5" || e.key === "F3" || e.key === "F7" || (mod && "rpufgsjh+=-0".includes(k) && k.length === 1)) e.preventDefault();
+    // the editor's Game view: pause / step keys work while the game has focus
+    if (embed && (e.key === "F6" || e.key === "F7" || e.key === "F8" || e.key === "F9")) {
+      e.preventDefault();
+      toEditor({ type: "key", key: e.key });
+    }
   }, true);
   window.addEventListener("wheel", (e) => { if (e.ctrlKey) e.preventDefault(); }, { passive: false });
 

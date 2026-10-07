@@ -14,8 +14,8 @@
 [![Release](https://img.shields.io/github/v/release/Erzyh/slate-engine?style=flat-square&color=4fd3a5)](https://github.com/Erzyh/slate-engine/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-ffcd75?style=flat-square)](LICENSE)
 [![Platform](https://img.shields.io/badge/editor-Windows-3b5dc9?style=flat-square)](https://github.com/Erzyh/slate-engine/releases/latest)
-[![Export](https://img.shields.io/badge/export-.exe%20%7C%20Web-73eff7?style=flat-square)](docs/editor.md#웹-게임으로-내보내기-itchio)
-[![Luau](https://img.shields.io/badge/script-Luau-00a2ff?style=flat-square)](docs/api.md)
+[![Export](https://img.shields.io/badge/export-.exe%20%7C%20Web-73eff7?style=flat-square)](docs/en/editor.md#exporting-a-web-game-itchio)
+[![Luau](https://img.shields.io/badge/script-Luau-00a2ff?style=flat-square)](docs/en/api.md)
 
 **English** · [한국어](README.ko.md)
 
@@ -29,11 +29,9 @@ Download `Slate_x.y.z_x64-setup.exe` from [Releases](https://github.com/Erzyh/sl
 
 ## Docs
 
-The docs are in Korean for now.
-
-- [Getting started](docs/getting-started.md): your first game from a template
-- [Editor](docs/editor.md): project folders, the pixel and map editors, sound, exporting
-- [Game code API](docs/api.md): Luau functions and the standard library (animation, collision, camera, dialog, menus…)
+- [Getting started](docs/en/getting-started.md): your first game from a template
+- [Editor](docs/en/editor.md): project folders, the pixel and map editors, sound, exporting
+- [Game code API](docs/en/api.md): Luau functions and the standard library (animation, collision, camera, dialog, menus…)
 
 ## License
 

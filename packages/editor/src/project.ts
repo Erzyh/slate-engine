@@ -7,6 +7,7 @@
 // (settings, maps, scripts, audio as data URLs). toCart() feeds the player, toFiles() saves the folder.
 
 import {
+  resolveTemplates,
   base64, baseName, decodeFrame, encodeFrame, extOf, fromBase64, packProject, PROJECT_FILE,
   type Cartridge, type SpriteDef, type SpriteMeta, type TileMap,
 } from "@slate/runtime";
@@ -84,6 +85,9 @@ async function loadSprite(def: SpriteDef): Promise<EditSprite> {
   s.tags = (def.tags ?? []).map((t) => ({ ...t }));
   s.flags = (def.flags ?? []).slice();
   s.durations = (def.durations ?? []).slice();
+  if (def.box) s.box = [...def.box];
+  s.autotiles = (def.autotiles ?? []).map((a) => a.slice());
+  s.tileAnims = (def.tileAnims ?? []).map((a) => ({ frames: a.frames.slice(), fps: a.fps }));
   return s;
 }
 
@@ -97,6 +101,9 @@ function saveSprite(s: EditSprite, withLayers = true): SpriteDef {
   if (s.tags.length) def.tags = s.tags.map((t) => ({ ...t }));
   if (s.flags.some((f) => f)) def.flags = s.flags.slice(0, s.frameCount).map((f) => f ?? 0);
   if (s.durations.some((d) => d > 0)) def.durations = Array.from({ length: s.frameCount }, (_, i) => s.durations[i] ?? 0);
+  if (s.box) def.box = [...s.box];
+  if (s.autotiles.length) def.autotiles = s.autotiles.map((a) => a.slice());
+  if (s.tileAnims.length) def.tileAnims = s.tileAnims.map((a) => ({ frames: a.frames.slice(), fps: a.fps }));
   if (withLayers && !isSimple(s)) {
     def.layers = s.layers.map((l) => ({
       name: l.name, visible: l.visible, opacity: l.opacity, locked: l.locked, alphaLock: l.alphaLock, cels: l.cels.map(encodeFrame),
@@ -270,8 +277,15 @@ export class Project {
       const s = this.get(baseName(from));
       if (!s) return false;
       if (this.get(baseName(to)) && baseName(to) !== s.name) return false;
+      const old = s.name;
       s.name = baseName(to);
       s.folder = folder;
+      // maps refer to sprites by name (tilesets, placed objects)
+      for (const m of this.maps) {
+        if (m.tileset === old) m.tileset = s.name;
+        if (m.tilesets) m.tilesets = m.tilesets.map((t) => (t === old ? s.name : t));
+        for (const o of m.objects ?? []) if (o.sprite === old) o.sprite = s.name;
+      }
     } else if (top === "maps") {
       const m = this.maps.find((x) => x.name === baseName(from));
       if (!m) return false;
@@ -317,8 +331,9 @@ export class Project {
   // ------------------------------------------------------------ output
 
   /** Cartridge for the player and for exports (no editor-only layer data). */
+  /** What the game gets (template instances filled in). */
   toCart(): Cartridge {
-    return { ...this.cart, code: "", sprites: this.sprites.map((s) => saveSprite(s, false)) };
+    return { ...this.cart, code: "", sprites: this.sprites.map((s) => saveSprite(s, false)), maps: resolveTemplates(this.cart.maps, this.cart.templates) };
   }
 
   /** Cartridge with everything (layers, folders too), for .slate files and autosave. */
@@ -336,7 +351,7 @@ export class Project {
     const json = (o: unknown) => enc.encode(JSON.stringify(o, null, 2) + "\n");
     const files = new Map<string, Uint8Array>();
     const c = this.cart;
-    files.set(PROJECT_FILE, json({ name: c.name, title: c.title ?? c.name, resolution: c.resolution, background: c.background, main: c.main, ...(c.fullscreen ? { fullscreen: true } : {}), ...(c.palette?.length ? { palette: c.palette } : {}) }));
+    files.set(PROJECT_FILE, json({ name: c.name, title: c.title ?? c.name, resolution: c.resolution, background: c.background, main: c.main, ...(c.fullscreen ? { fullscreen: true } : {}), ...(c.palette?.length ? { palette: c.palette } : {}), ...(c.particles && Object.keys(c.particles).length ? { particles: c.particles } : {}), ...(c.templates && Object.keys(c.templates).length ? { templates: c.templates } : {}) }));
     for (const [path, src] of Object.entries(this.scripts)) files.set(path, enc.encode(src));
     for (const s of this.sprites) {
       const base = `${s.folder}/${s.name}`;
@@ -347,6 +362,9 @@ export class Project {
       if (s.durations.some((d) => d > 0)) meta.durations = Array.from({ length: s.frameCount }, (_, i) => s.durations[i] ?? 0);
       if (s.tags.length) meta.tags = s.tags.map((t) => ({ ...t }));
       if (s.flags.some((f) => f)) meta.flags = s.flags.slice(0, s.frameCount).map((f) => f ?? 0);
+      if (s.box) meta.box = [...s.box];
+      if (s.autotiles.length) meta.autotiles = s.autotiles.map((a) => a.slice());
+      if (s.tileAnims.length) meta.tileAnims = s.tileAnims.map((a) => ({ frames: a.frames.slice(), fps: a.fps }));
       if (!isSimple(s)) {
         meta.layers = s.layers.map((l) => ({ name: l.name, visible: l.visible, opacity: l.opacity, locked: l.locked, alphaLock: l.alphaLock }));
         files.set(`${base}.layers.png`, pngBytes(joinFrames(s.layers.flatMap((l) => l.cels), s.layers.length)));

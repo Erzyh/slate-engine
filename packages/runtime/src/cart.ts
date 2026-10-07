@@ -18,6 +18,12 @@ export interface SpriteDef {
   tags?: { name: string; from: number; to: number; dir: "forward" | "reverse" | "pingpong" }[];
   /** Per-frame bit flags, used when the sprite is a tileset (bit 0 = solid). */
   flags?: number[];
+  /** Hitbox [x, y, w, h] from the sprite's top-left: hitbox(name, x, y) in game code. */
+  box?: [number, number, number, number];
+  /** Editor-only: autotile terrains, 16 frames each (4x4 block order). */
+  autotiles?: number[][];
+  /** Animated tiles: these frames cycle wherever any of them is placed on a map. */
+  tileAnims?: { frames: number[]; fps: number }[];
   /** Editor-only: layered source (frames above are the flattened result the game draws). */
   layers?: { name: string; visible: boolean; opacity: number; cels: string[]; locked?: boolean; alphaLock?: boolean }[];
 }
@@ -25,8 +31,12 @@ export interface SpriteDef {
 export interface MapLayer {
   name: string;
   visible?: boolean;
-  /** Row-major tile indices (frames of the tileset sprite); -1 = empty. */
+  /** Row-major tile values; -1 = empty. value = tileset index * TILE_STRIDE + frame. */
   data: number[];
+  /** Scroll speed relative to the camera (background scenery; such layers never collide). */
+  parallax?: [number, number];
+  /** Repeat sideways forever. */
+  repeatX?: boolean;
 }
 
 /** Something placed on a map in the editor (enemy, item, spawn point...). x, y = bottom-center in pixels. */
@@ -37,12 +47,46 @@ export interface MapObject {
   x: number;
   y: number;
   props?: Record<string, string | number | boolean>;
+  /** made from an object template: its type, sprite and props come from there (props here add to / override them) */
+  template?: string;
 }
 
-/** A tile map: a grid of frames from a tileset sprite (one frame = one tile), plus placed objects. */
+/** An object template (prefab): defined once, placed on any map, edited in one place. */
+export interface ObjectTemplate {
+  type: string;
+  sprite?: string;
+  props?: Record<string, string | number | boolean>;
+}
+
+/** Objects with what their templates give them (what the game sees). */
+export function resolveObject(o: MapObject, templates: Record<string, ObjectTemplate> | undefined): MapObject {
+  const t = o.template ? templates?.[o.template] : undefined;
+  if (!t) return o;
+  const props = { ...(t.props ?? {}), ...(o.props ?? {}) };
+  const out: MapObject = { ...o, type: t.type };
+  if (t.sprite) out.sprite = t.sprite;
+  else delete out.sprite;
+  if (Object.keys(props).length) out.props = props;
+  else delete out.props;
+  return out;
+}
+
+/** A copy of the maps with every template instance filled in. */
+export function resolveTemplates(maps: TileMap[] | undefined, templates: Record<string, ObjectTemplate> | undefined): TileMap[] | undefined {
+  if (!maps || !templates || !Object.keys(templates).length) return maps;
+  return maps.map((m) => (m.objects?.some((o) => o.template) ? { ...m, objects: m.objects.map((o) => resolveObject(o, templates)) } : m));
+}
+
+/** Tile values pack the tileset: value = index in `tilesets` * TILE_STRIDE + frame. */
+export const TILE_STRIDE = 4096;
+
+/** A tile map: a grid of frames from tileset sprites (one frame = one tile), plus placed objects. */
 export interface TileMap {
   name: string;
+  /** the first tileset (it sets the tile size) */
   tileset: string;
+  /** every tileset the map uses, in tile-value order (missing = just `tileset`) */
+  tilesets?: string[];
   w: number;
   h: number;
   layers: MapLayer[];
@@ -76,6 +120,29 @@ export interface Cartridge {
   fullscreen?: boolean;
   /** the project's own palette colors (editor only) */
   palette?: string[];
+  /** editor "Play from here": where the game should start (playtest() in game code) */
+  playtest?: { map: string; x: number; y: number };
+  /** particle presets: fx:burst(x, y, "name") */
+  particles?: Record<string, ParticlePreset>;
+  /** object templates (editor; instances are resolved before the game sees them) */
+  templates?: Record<string, ObjectTemplate>;
+}
+
+/** Particle burst options (angles in radians), as Particles:burst takes them. */
+export interface ParticlePreset {
+  count?: number;
+  colors?: string[];
+  speed?: number;
+  angle?: number;
+  spread?: number;
+  life?: number;
+  gravity?: number;
+  drag?: number;
+  size?: number;
+  shrink?: boolean;
+  add?: boolean;
+  radius?: number;
+  rate?: number;
 }
 
 export function emptyCartridge(name = "untitled"): Cartridge {

@@ -3,13 +3,16 @@
 // Tools: pen (square or round brush, pixel-perfect, dither), eraser, fill (shift: replace color
 // everywhere), picker, line, rect, ellipse (shift: filled), and three ways to select: rectangle,
 // lasso and magic wand (shift adds, alt subtracts). A selection can be moved, resized with its
-// handles, flipped, rotated, filled, cleared, copied and pasted; painting stays inside it.
+// handles, turned to any angle with the handle above it (RotSprite-style, so pixel art stays
+// clean), flipped, filled, cleared, copied and pasted; painting stays inside it.
+// Hitbox tool: the sprite's collision box (drag a new one, drag inside to move, handles resize),
+// read in game code with hitbox(name, x, y).
 // Mirror X/Y, onion skin, grid, undo/redo (cel-level for painting, sprite-level for structure).
 
 import { copyImage, type EditSprite } from "./sprite.ts";
 import { flip, resample, rotate } from "./ops.ts";
 
-export type Tool = "pen" | "eraser" | "fill" | "picker" | "line" | "rect" | "ellipse" | "select" | "lasso" | "wand";
+export type Tool = "pen" | "eraser" | "fill" | "picker" | "line" | "rect" | "ellipse" | "select" | "lasso" | "wand" | "hitbox";
 export type BrushShape = "square" | "circle";
 type RGBA = [number, number, number, number];
 type SelOp = "replace" | "add" | "subtract";
@@ -37,7 +40,8 @@ export interface Selection extends Rect {
   mask: Uint8Array;
 }
 
-/** Selected pixels lifted off the cel. src / srcMask are kept unscaled so resizing never degrades. */
+/** Selected pixels lifted off the cel. src / srcMask are kept as they were so resizing and
+ *  rotating always start from the original pixels; img / mask are what shows at (x, y). */
 interface Floating {
   src: ImageData;
   srcMask: ImageData;
@@ -45,6 +49,16 @@ interface Floating {
   mask: ImageData;
   x: number;
   y: number;
+  /** size before rotation */
+  w: number;
+  h: number;
+  /** radians */
+  angle: number;
+}
+
+/** A floating piece from pixels and their mask. */
+function floatingOf(src: ImageData, srcMask: ImageData, x: number, y: number): Floating {
+  return { src, srcMask, img: copyImage(src), mask: copyImage(srcMask), x, y, w: src.width, h: src.height, angle: 0 };
 }
 
 type UndoEntry =
@@ -96,6 +110,9 @@ export class PixelEditor {
   private dragRect: Rect | null = null;
   private lassoPts: [number, number][] | null = null;
   private scaling: { handle: Handle; box: Rect } | null = null;
+  private rotating: { cx: number; cy: number; a0: number; start: number } | null = null;
+  // hitbox tool drag: a new box from `from`, moving it, or one of its handles
+  private boxDrag: { mode: "new" | "move" | Handle; from: [number, number]; box: Rect } | null = null;
   private moved = false;
   private needFit = false;
 
@@ -124,6 +141,10 @@ export class PixelEditor {
     canvas.addEventListener("pointerleave", () => { this.hover = null; this.render(); });
     window.addEventListener("pointerup", () => this.pointerUp());
     canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+    // a click on the empty area around the sprite drops the selection
+    canvas.parentElement!.addEventListener("pointerdown", (e) => {
+      if (e.target === canvas.parentElement && e.button === 0 && this.hasSelection) this.deselect();
+    });
     new ResizeObserver(() => {
       if (!this.needFit) return;
       this.fit();
@@ -253,10 +274,22 @@ export class PixelEditor {
     return selHas(this.selection, x, y);
   }
 
-  /** The resize handle under the pointer, if any (only with a selection tool). */
-  private handleAt(e: PointerEvent): Handle | null {
+  /** The rotation knob above a selection, in canvas pixels. */
+  private rotKnob(b: Rect): [number, number] {
+    return [(b.x + b.w / 2) * this.zoom, b.y * this.zoom - 18];
+  }
+
+  private onRotKnob(e: PointerEvent) {
     const b = this.selBox();
-    if (!b || !isSelectTool(this.tool)) return null;
+    if (!b || !isSelectTool(this.tool)) return false;
+    const r = this.canvas.getBoundingClientRect();
+    const [kx, ky] = this.rotKnob(b);
+    return Math.hypot(e.clientX - r.left - kx, e.clientY - r.top - ky) <= 10;
+  }
+
+  /** The resize handle under the pointer, if any (selection tools: the selection; hitbox: the box). */
+  private handleAt(e: PointerEvent, b: Rect | null = isSelectTool(this.tool) && !this.floating?.angle ? this.selBox() : null): Handle | null {
+    if (!b) return null;
     const r = this.canvas.getBoundingClientRect();
     const px = e.clientX - r.left, py = e.clientY - r.top;
     for (const h of HANDLES) {
@@ -270,6 +303,7 @@ export class PixelEditor {
     const cel = this.cel;
     if (!cel || !this.sprite || e.button === 1) return;
     this.stopPreview();
+    if (this.tool === "hitbox") return this.hitboxDown(e);
     const layer = this.sprite.layers[this.layer];
     const selecting = isSelectTool(this.tool);
     if (!layer.visible) {
@@ -309,6 +343,14 @@ export class PixelEditor {
   }
 
   private selectDown(e: PointerEvent, x: number, y: number) {
+    if (this.onRotKnob(e)) {
+      if (!this.floating) this.lift();
+      const f = this.floating!;
+      const cx = f.x + f.img.width / 2, cy = f.y + f.img.height / 2;
+      this.rotating = { cx, cy, a0: this.pointerAngle(e, cx, cy), start: f.angle };
+      this.render();
+      return;
+    }
     const handle = this.handleAt(e);
     if (handle) {
       if (!this.floating) this.lift();
@@ -343,9 +385,11 @@ export class PixelEditor {
       this.onCursor(x, y, b ? { w: b.w, h: b.h } : null);
     }
     if (this.scaling) return this.scaleTo(e);
+    if (this.rotating) return this.rotateTo(e);
+    if (this.tool === "hitbox") return this.hitboxMove(e, moved);
     if (!this.down && isSelectTool(this.tool)) {
       const h = this.handleAt(e);
-      this.canvas.style.cursor = h ? `${h}-resize` : this.inSelection(x, y) ? "move" : "";
+      this.canvas.style.cursor = this.onRotKnob(e) ? "grab" : h ? `${h}-resize` : this.inSelection(x, y) ? "move" : "";
     }
     if (!this.down || !this.cel || !this.last) {
       if (moved) this.render();
@@ -402,6 +446,43 @@ export class PixelEditor {
     this.changed();
   }
 
+  private pointerAngle(e: PointerEvent, cx: number, cy: number) {
+    const r = this.canvas.getBoundingClientRect();
+    return Math.atan2((e.clientY - r.top) / this.zoom - cy, (e.clientX - r.left) / this.zoom - cx);
+  }
+
+  /** Dragging the rotation knob (Shift snaps to 15°). */
+  private rotateTo(e: PointerEvent) {
+    const f = this.floating, r = this.rotating;
+    if (!f || !r) return;
+    let a = r.start + this.pointerAngle(e, r.cx, r.cy) - r.a0;
+    const step = Math.PI / 12;
+    if (e.shiftKey) a = Math.round(a / step) * step;
+    // land exactly on right angles when close (they rotate without any resampling)
+    const right = Math.round(a / (Math.PI / 2)) * (Math.PI / 2);
+    if (Math.abs(a - right) < 0.03) a = right;
+    a = Math.atan2(Math.sin(a), Math.cos(a));
+    if (a === f.angle) return;
+    f.angle = Math.abs(a) < 1e-6 ? 0 : a;
+    this.reshape(f, r.cx, r.cy);
+    this.onStatus(`Rotation ${Math.round((f.angle * 180) / Math.PI)}°${e.shiftKey ? "" : " · Shift snaps to 15°"}`);
+    this.render();
+  }
+
+  /** Rebuild the shown pixels from the original ones (size w x h, then angle), centered at (cx, cy). */
+  private reshape(f: Floating, cx: number, cy: number) {
+    const base = f.w === f.src.width && f.h === f.src.height ? f.src : resample(f.src, f.w, f.h);
+    const baseMask = f.w === f.srcMask.width && f.h === f.srcMask.height ? f.srcMask : resample(f.srcMask, f.w, f.h);
+    if (f.angle) {
+      [f.img, f.mask] = rotSprite(base, baseMask, f.angle);
+    } else {
+      f.img = base === f.src ? copyImage(base) : base;
+      f.mask = baseMask === f.srcMask ? copyImage(baseMask) : baseMask;
+    }
+    f.x = Math.round(cx - f.img.width / 2);
+    f.y = Math.round(cy - f.img.height / 2);
+  }
+
   /** Dragging a resize handle: new box from the pointer (Shift on a corner keeps the proportions). */
   private scaleTo(e: PointerEvent) {
     const f = this.floating, s = this.scaling;
@@ -425,6 +506,8 @@ export class PixelEditor {
       f.img = resample(f.src, w, hh);
       f.mask = resample(f.srcMask, w, hh);
     }
+    f.w = w;
+    f.h = hh;
     f.x = x0;
     f.y = y0;
     this.onCursor(px, py, { w, h: hh });
@@ -432,6 +515,17 @@ export class PixelEditor {
   }
 
   private pointerUp() {
+    if (this.rotating) {
+      this.rotating = null;
+      this.down = false;
+      this.render();
+      return;
+    }
+    if (this.boxDrag) {
+      this.boxDrag = null;
+      this.changed();
+      return;
+    }
     if (!this.down && !this.scaling) return;
     this.down = false;
     this.dragSel = null;
@@ -449,6 +543,74 @@ export class PixelEditor {
     }
     this.dragRect = null;
     this.lassoPts = null;
+    this.render();
+  }
+
+  // ------------------------------------------------------------ hitbox
+
+  /** The sprite's hitbox, or null when it has none (the game then uses the whole sprite). */
+  get hitbox(): Rect | null {
+    const b = this.sprite?.box;
+    return b ? { x: b[0], y: b[1], w: b[2], h: b[3] } : null;
+  }
+
+  /** Set (or clear) the hitbox; undoable. */
+  setHitbox(r: Rect | null) {
+    const s = this.sprite;
+    if (!s) return;
+    this.snapshot();
+    s.box = r ? [r.x, r.y, r.w, r.h] : null;
+    this.changed();
+  }
+
+  private hitboxDown(e: PointerEvent) {
+    const s = this.sprite!;
+    this.canvas.setPointerCapture(e.pointerId);
+    const [x, y] = this.cellAt(e);
+    const box = this.hitbox;
+    const handle = this.handleAt(e, box);
+    this.snapshot();
+    if (box && handle) this.boxDrag = { mode: handle, from: [x, y], box };
+    else if (box && x >= box.x && y >= box.y && x < box.x + box.w && y < box.y + box.h) this.boxDrag = { mode: "move", from: [x, y], box };
+    else {
+      const cx = Math.max(0, Math.min(s.w - 1, x)), cy = Math.max(0, Math.min(s.h - 1, y));
+      this.boxDrag = { mode: "new", from: [cx, cy], box: { x: cx, y: cy, w: 1, h: 1 } };
+      s.box = [cx, cy, 1, 1];
+    }
+    this.render();
+  }
+
+  private hitboxMove(e: PointerEvent, moved: boolean) {
+    const d = this.boxDrag, s = this.sprite;
+    if (!d || !s) {
+      const box = this.hitbox;
+      const h = this.handleAt(e, box);
+      const [x, y] = this.cellAt(e);
+      this.canvas.style.cursor = h ? `${h}-resize` : box && x >= box.x && y >= box.y && x < box.x + box.w && y < box.y + box.h ? "move" : "";
+      if (moved) this.render();
+      return;
+    }
+    const [x, y] = this.cellAt(e);
+    const r = this.canvas.getBoundingClientRect();
+    // handles sit on pixel edges, so they follow the nearest edge rather than the pixel under the pointer
+    const ex = Math.round((e.clientX - r.left) / this.zoom), ey = Math.round((e.clientY - r.top) / this.zoom);
+    const b = d.box;
+    let x0 = b.x, y0 = b.y, x1 = b.x + b.w, y1 = b.y + b.h;
+    if (d.mode === "new") {
+      const cx = Math.max(0, Math.min(s.w - 1, x)), cy = Math.max(0, Math.min(s.h - 1, y));
+      [x0, x1] = [Math.min(d.from[0], cx), Math.max(d.from[0], cx) + 1];
+      [y0, y1] = [Math.min(d.from[1], cy), Math.max(d.from[1], cy) + 1];
+    } else if (d.mode === "move") {
+      const dx = Math.max(-b.x, Math.min(s.w - x1, x - d.from[0])), dy = Math.max(-b.y, Math.min(s.h - y1, y - d.from[1]));
+      x0 += dx; x1 += dx; y0 += dy; y1 += dy;
+    } else {
+      if (d.mode.includes("w")) x0 = Math.max(0, Math.min(ex, x1 - 1));
+      if (d.mode.includes("e")) x1 = Math.min(s.w, Math.max(ex, x0 + 1));
+      if (d.mode.includes("n")) y0 = Math.max(0, Math.min(ey, y1 - 1));
+      if (d.mode.includes("s")) y1 = Math.min(s.h, Math.max(ey, y0 + 1));
+    }
+    s.box = [x0, y0, x1 - x0, y1 - y0];
+    this.onCursor(x, y, { w: x1 - x0, h: y1 - y0 });
     this.render();
   }
 
@@ -555,7 +717,7 @@ export class PixelEditor {
         srcMask.data[d + 3] = 255;
         cel.data.fill(0, o, o + 4);
       }
-    this.floating = { src, srcMask, img: copyImage(src), mask: copyImage(srcMask), x: sel.x, y: sel.y };
+    this.floating = floatingOf(src, srcMask, sel.x, sel.y);
   }
 
   commitFloating() {
@@ -624,6 +786,14 @@ export class PixelEditor {
     if (!this.floating) this.lift();
     const f = this.floating;
     if (!f) return false;
+    if (f.angle || f.w !== f.src.width || f.h !== f.src.height) {
+      // start from what shows now
+      f.src = copyImage(f.img);
+      f.srcMask = copyImage(f.mask);
+      f.w = f.img.width;
+      f.h = f.img.height;
+      f.angle = 0;
+    }
     if (op === "flip-h" || op === "flip-v") {
       const h = op === "flip-h";
       f.src = flip(f.src, h);
@@ -637,6 +807,7 @@ export class PixelEditor {
       f.srcMask = rotate(f.srcMask, cw);
       f.img = rotate(f.img, cw);
       f.mask = rotate(f.mask, cw);
+      [f.w, f.h] = [f.h, f.w];
       // turn around the center
       f.x += Math.floor((w - h) / 2);
       f.y += Math.floor((h - w) / 2);
@@ -673,7 +844,7 @@ export class PixelEditor {
     this.commitFloating();
     this.celUndo();
     const x = this.selection?.x ?? 0, y = this.selection?.y ?? 0;
-    this.floating = { src: copyImage(c.img), srcMask: copyImage(c.mask), img: copyImage(c.img), mask: copyImage(c.mask), x, y };
+    this.floating = floatingOf(copyImage(c.img), copyImage(c.mask), x, y);
     if (!isSelectTool(this.tool)) this.tool = "select";
     this.onStructure();
     this.render();
@@ -795,6 +966,27 @@ export class PixelEditor {
     }
     if (!live) return;
 
+    // the hitbox (only with the hitbox tool)
+    if (this.tool === "hitbox") {
+      const b = this.hitbox ?? { x: 0, y: 0, w: W, h: H };
+      g.fillStyle = this.hitbox ? "rgba(124,255,107,0.18)" : "rgba(124,255,107,0.06)";
+      g.fillRect(b.x * z, b.y * z, b.w * z, b.h * z);
+      g.strokeStyle = "#7cff6b";
+      g.lineWidth = 1;
+      if (!this.hitbox) g.setLineDash([4, 4]);
+      g.strokeRect(b.x * z + 0.5, b.y * z + 0.5, b.w * z - 1, b.h * z - 1);
+      g.setLineDash([]);
+      if (this.hitbox) {
+        g.fillStyle = "#7cff6b";
+        g.strokeStyle = "#000";
+        for (const h of HANDLES) {
+          const [hx, hy] = handlePos(b, h, z);
+          g.fillRect(Math.round(hx) - 3, Math.round(hy) - 3, 7, 7);
+          g.strokeRect(Math.round(hx) - 3.5, Math.round(hy) - 3.5, 8, 8);
+        }
+      }
+    }
+
     // selection outline (marching-ants style: black and white dashes)
     const ants = () => {
       g.save();
@@ -830,17 +1022,30 @@ export class PixelEditor {
       }
       ants();
     }
-    // resize handles
+    // resize handles (while unrotated) and the rotation knob
     const box = this.selBox();
     if (box && isSelectTool(this.tool) && !this.dragRect && !this.lassoPts) {
       g.fillStyle = "#fff";
       g.strokeStyle = "#000";
       g.lineWidth = 1;
-      for (const h of HANDLES) {
-        const [hx, hy] = handlePos(box, h, z);
-        g.fillRect(Math.round(hx) - 3, Math.round(hy) - 3, 7, 7);
-        g.strokeRect(Math.round(hx) - 3.5, Math.round(hy) - 3.5, 8, 8);
-      }
+      if (!f?.angle)
+        for (const h of HANDLES) {
+          const [hx, hy] = handlePos(box, h, z);
+          g.fillRect(Math.round(hx) - 3, Math.round(hy) - 3, 7, 7);
+          g.strokeRect(Math.round(hx) - 3.5, Math.round(hy) - 3.5, 8, 8);
+        }
+      const [kx, ky] = this.rotKnob(box);
+      g.beginPath();
+      g.moveTo(Math.round(kx) + 0.5, ky + 5);
+      g.lineTo(Math.round(kx) + 0.5, box.y * z - 1);
+      g.strokeStyle = "rgba(255,255,255,0.7)";
+      g.stroke();
+      g.beginPath();
+      g.arc(kx, ky, 5, 0, Math.PI * 2);
+      g.fillStyle = this.rotating ? "#ffcd75" : "#fff";
+      g.fill();
+      g.strokeStyle = "#000";
+      g.stroke();
     }
     // brush cursor, in the brush's own shape
     if (this.hover && !this.down && ["pen", "eraser", "line", "rect", "ellipse"].includes(this.tool)) {
@@ -930,6 +1135,52 @@ export function brushMask(b: number, shape: BrushShape) {
     for (let x = 0; x < b; x++) m[y * b + x] = shape === "square" || b <= 2 || (x - c) ** 2 + (y - c) ** 2 <= r2 ? 1 : 0;
   brushCache.set(key, m);
   return m;
+}
+
+// ------------------------------------------------------------ rotation
+
+/** Scale2x (EPX): doubles pixel art, rounding diagonal edges instead of making blocks. */
+function scale2x(img: ImageData) {
+  const { width: w, height: h } = img;
+  const src = new Uint32Array(img.data.buffer.slice(0));
+  const out = new ImageData(w * 2, h * 2);
+  const dst = new Uint32Array(out.data.buffer);
+  const at = (x: number, y: number) => src[Math.max(0, Math.min(h - 1, y)) * w + Math.max(0, Math.min(w - 1, x))];
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++) {
+      const p = src[y * w + x], a = at(x, y - 1), b = at(x + 1, y), c = at(x - 1, y), d = at(x, y + 1);
+      const o = y * 2 * w * 2 + x * 2;
+      dst[o] = c === a && c !== d && a !== b ? a : p;
+      dst[o + 1] = a === b && a !== c && b !== d ? b : p;
+      dst[o + w * 2] = d === c && d !== b && c !== a ? c : p;
+      dst[o + w * 2 + 1] = b === d && b !== a && d !== c ? d : p;
+    }
+  return out;
+}
+
+/** Rotate pixel art by any angle, RotSprite-style: Scale2x twice, then sample the 4x image. */
+function rotSprite(img: ImageData, mask: ImageData, angle: number): [ImageData, ImageData] {
+  const { width: w, height: h } = img;
+  const big = scale2x(scale2x(img));
+  const bigMask = scale2x(scale2x(mask));
+  const cos = Math.cos(angle), sin = Math.sin(angle);
+  const W = Math.max(1, Math.round(Math.abs(w * cos) + Math.abs(h * sin)));
+  const H = Math.max(1, Math.round(Math.abs(w * sin) + Math.abs(h * cos)));
+  const out = new ImageData(W, H), outMask = new ImageData(W, H);
+  const bw = w * 4, bh = h * 4;
+  for (let j = 0; j < H; j++)
+    for (let i = 0; i < W; i++) {
+      // the source point of this pixel's center (inverse rotation about the centers)
+      const px = i + 0.5 - W / 2, py = j + 0.5 - H / 2;
+      const sx = px * cos + py * sin + w / 2, sy = -px * sin + py * cos + h / 2;
+      const bx = Math.floor(sx * 4), by = Math.floor(sy * 4);
+      if (bx < 0 || by < 0 || bx >= bw || by >= bh) continue;
+      const o = (by * bw + bx) * 4, d = (j * W + i) * 4;
+      if (!bigMask.data[o + 3]) continue;
+      out.data.set(big.data.subarray(o, o + 4), d);
+      outMask.data[d + 3] = 255;
+    }
+  return [out, outMask];
 }
 
 // ------------------------------------------------------------ selection helpers
