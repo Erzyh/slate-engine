@@ -1,0 +1,58 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Slate",
+  "version": "0.1.3",
+  "identifier": "dev.slate.studio",
+  "build": {
+    "frontendDist": "../../editor/dist",
+    "devUrl": "http://localhost:1420",
+    "beforeDevCommand": {
+      "script": "npm run dev",
+      "cwd": "../.."
+    },
+    "beforeBuildCommand": {
+      "script": "npm run build",
+      "cwd": "../.."
+    }
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Slate",
+        "width": 1440,
+        "height": 900,
+        "minWidth": 1000,
+        "minHeight": 640,
+        "dragDropEnabled": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "nsis"
+    ],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.ico"
+    ],
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEJBNzgyMkI3MEY4MEM4RkMKUldUOHlJQVB0eUo0dXBrbHZ2VmZZU2FvOEhiS25OVnFhRFFacmNmSmFsVXJyVXYyK0phTE1NaDcK",
+      "endpoints": [
+        "https://raw.githubusercontent.com/Erzyh/slate-engine/main/updater/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
+  }
+}

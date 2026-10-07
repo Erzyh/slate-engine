@@ -1,0 +1,10 @@
+{
+  "name": "platformer",
+  "title": "Platformer",
+  "resolution": [
+    320,
+    180
+  ],
+  "background": "#29366f",
+  "main": "scripts/main.luau"
+}

@@ -1,0 +1,10 @@
+{
+  "name": "topdown",
+  "title": "Top-down",
+  "resolution": [
+    320,
+    180
+  ],
+  "background": "#1a1c2c",
+  "main": "scripts/main.luau"
+}

@@ -1,0 +1,148 @@
+{
+ "note": "How sprites/ were made from raw/ with Grid Stamp (npm run stamp). sprites/ is the source of truth now.",
+ "sprites": {
+  "player": {
+   "src": "raw/player.png",
+   "maxSize": 60,
+   "pitch": 11
+  },
+  "drone": {
+   "src": "raw/drone.png",
+   "maxSize": 60,
+   "pitch": 8
+  },
+  "swirler": {
+   "src": "raw/swirler.png",
+   "maxSize": 60,
+   "pitch": 9
+  },
+  "gunship": {
+   "src": "raw/gunship.png",
+   "maxSize": 60,
+   "pitch": 6.5
+  },
+  "carrier": {
+   "src": "raw/carrier.png",
+   "maxSize": 60,
+   "pitch": 8
+  },
+  "midboss": {
+   "src": "raw/midboss.png",
+   "maxSize": 76
+  },
+  "boss": {
+   "src": "raw/boss.png",
+   "maxSize": 140
+  },
+  "asteroid": {
+   "src": "raw/asteroid.png",
+   "maxSize": 28
+  },
+  "planet": {
+   "src": "raw/planet.png",
+   "maxSize": 90,
+   "colors": 12
+  },
+  "nebula": {
+   "src": "raw/nebula.png",
+   "colors": 14,
+   "background": "none"
+  },
+  "space": {},
+  "vfx_fire": {
+   "src": "raw/vfx_fire.png",
+   "background": "none",
+   "colors": 24,
+   "trim": false,
+   "sheet": [
+    4,
+    2
+   ],
+   "fps": 20,
+   "pitch": 4
+  },
+  "vfx_hit": {
+   "src": "raw/vfx_hit.png",
+   "background": "none",
+   "colors": 24,
+   "trim": false,
+   "sheet": [
+    4,
+    2
+   ],
+   "fps": 20,
+   "pitch": 4
+  },
+  "vfx_level": {
+   "src": "raw/vfx_level.png",
+   "background": "none",
+   "colors": 24,
+   "trim": false,
+   "sheet": [
+    4,
+    2
+   ],
+   "fps": 20,
+   "pitch": 4
+  },
+  "interceptor": {
+   "src": "raw/interceptor.png",
+   "maxSize": 60,
+   "pitch": 8
+  },
+  "orbmine": {
+   "src": "raw/orbmine.png",
+   "maxSize": 60,
+   "pitch": 9
+  },
+  "bomber": {
+   "src": "raw/bomber.png",
+   "maxSize": 60,
+   "pitch": 7
+  },
+  "sentinel": {
+   "src": "raw/sentinel.png",
+   "maxSize": 60,
+   "pitch": 7
+  },
+  "ironclad": {
+   "src": "raw/ironclad.png",
+   "maxSize": 140
+  },
+  "golem": {
+   "src": "raw/golem.png",
+   "maxSize": 140
+  },
+  "twinfang": {
+   "src": "raw/twinfang.png",
+   "maxSize": 140
+  },
+  "seraph": {
+   "src": "raw/seraph.png",
+   "maxSize": 140
+  },
+  "kraken": {
+   "src": "raw/kraken.png",
+   "maxSize": 140
+  },
+  "leviathan": {
+   "src": "raw/leviathan.png",
+   "maxSize": 140
+  },
+  "eye": {
+   "src": "raw/eye.png",
+   "maxSize": 140
+  },
+  "overmind": {
+   "src": "raw/overmind.png",
+   "maxSize": 140
+  },
+  "bullets": {
+   "sheet": [
+    12,
+    1
+   ],
+   "fps": 1
+  }
+ }
+}

@@ -1,0 +1,10 @@
+{
+  "name": "shmup",
+  "title": "Shooter",
+  "resolution": [
+    180,
+    320
+  ],
+  "background": "#0b0d1a",
+  "main": "scripts/main.luau"
+}

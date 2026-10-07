@@ -1,0 +1,11 @@
+[workspace]
+members = ["player"]
+resolver = "2"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
+# not "abort": Luau raises script errors as C++ exceptions that unwind through Rust API callbacks
+panic = "unwind"

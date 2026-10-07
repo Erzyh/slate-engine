@@ -1,0 +1,19 @@
+{
+ "w": 8,
+ "h": 8,
+ "fps": 8,
+ "tags": [
+  {
+   "name": "spin",
+   "from": 0,
+   "to": 3,
+   "dir": "forward"
+  }
+ ],
+ "durations": [
+  420,
+  90,
+  70,
+  90
+ ]
+}

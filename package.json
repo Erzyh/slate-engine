@@ -1,0 +1,30 @@
+{
+  "name": "slate-engine",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build:runtime": "npm run build -w @slate/runtime",
+    "dev": "npm run build:runtime && npm run examples && npm run dev -w @slate/editor",
+    "build": "npm run build:runtime && npm run examples && npm run build -w @slate/editor",
+    "native:build": "cargo build --release --manifest-path native/Cargo.toml",
+    "desktop:dev": "npm run native:build && npm run tauri -w @slate/desktop -- dev",
+    "desktop:build": "npm run native:build && node tools/build-web.mjs --optional && npm run tauri -w @slate/desktop -- build",
+    "stamp": "tsx packages/pixelize/src/cli.ts",
+    "cart": "tsx tools/build-cart.ts",
+    "typecheck": "tsc -p packages/runtime && tsc -p packages/pixelize && tsc -p packages/editor",
+    "examples": "tsx tools/build-cart.ts games/jelly && tsx tools/build-cart.ts games/star-barrage && tsx tools/build-cart.ts templates/platformer && tsx tools/build-cart.ts templates/topdown && tsx tools/build-cart.ts templates/shmup",
+    "web:build": "node tools/build-web.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/pngjs": "^6.0.5",
+    "pngjs": "^7.0.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.3"
+  },
+  "license": "MIT"
+}

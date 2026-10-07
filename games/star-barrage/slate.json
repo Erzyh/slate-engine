@@ -1,0 +1,10 @@
+{
+  "name": "star-barrage",
+  "title": "StarBarrage",
+  "resolution": [
+    270,
+    480
+  ],
+  "background": "#05040e",
+  "main": "scripts/main.luau"
+}

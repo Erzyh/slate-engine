@@ -1,0 +1,14 @@
+Slate player third-party components
+===================================
+
+Luau (Roblox)                         MIT
+mlua                                  MIT
+macroquad, miniquad, quad-snd         MIT OR Apache-2.0
+gilrs                                 MIT OR Apache-2.0
+miniz_oxide                           MIT OR Zlib OR Apache-2.0
+serde, serde_json                     MIT OR Apache-2.0
+audrey, hound, lewton (WAV / OGG)     MIT OR Apache-2.0
+image, png, base64                    MIT OR Apache-2.0
+wasi-libc, libc++ (web build only)    Apache-2.0 WITH LLVM-exception, MIT
+
+Each project's full license text is in its source repository.

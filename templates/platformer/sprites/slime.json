@@ -1,0 +1,13 @@
+{
+ "w": 16,
+ "h": 16,
+ "fps": 3,
+ "tags": [
+  {
+   "name": "walk",
+   "from": 0,
+   "to": 1,
+   "dir": "forward"
+  }
+ ]
+}

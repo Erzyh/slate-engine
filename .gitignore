@@ -1,0 +1,42 @@
+node_modules/
+dist/
+*.log
+__pycache__/
+
+# Rust builds
+native/target/
+packages/desktop/src-tauri/target/
+packages/desktop/src-tauri/gen/schemas/
+
+# project builds and editor leftovers
+games/*/build/
+templates/*/build/
+templates/preview.png
+.slate-trash/
+*.slate-tmp
+
+# large recordings for the trailers (regenerate with record.py / capture.mjs)
+games/*/trailer/footage/
+games/*/trailer/stills/
+games/*/trailer/*.mp4
+games/*/trailer/*.wav
+# AI source images for Star Barrage (regenerate with tools/qwen-gen.mjs + assets.json)
+games/star-barrage/raw/
+# local tool settings
+.claude/
+# trailer working files (regenerate: docs/trailer/record.py, capture.mjs, music.py, trailer.py)
+docs/trailer/footage/
+docs/trailer/stills/
+docs/trailer/*.mp4
+docs/trailer/*.wav
+
+# not part of the public repo: trailer production, optional AI image tooling
+docs/trailer/
+games/*/trailer/
+games/jelly/sprites/trailer/
+games/star-barrage/assets.json
+plugins/
+tools/qwen-gen.mjs
+docs/gridstamp-compare.png
+docs/media/*.mp4
+logo/

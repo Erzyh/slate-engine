@@ -1,0 +1,33 @@
+{
+ "w": 16,
+ "h": 16,
+ "fps": 6,
+ "tags": [
+  {
+   "name": "down",
+   "from": 0,
+   "to": 1,
+   "dir": "forward"
+  },
+  {
+   "name": "side",
+   "from": 2,
+   "to": 3,
+   "dir": "forward"
+  },
+  {
+   "name": "up",
+   "from": 4,
+   "to": 5,
+   "dir": "forward"
+  }
+ ],
+ "durations": [
+  160,
+  160,
+  160,
+  160,
+  160,
+  160
+ ]
+}

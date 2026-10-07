@@ -1,0 +1,13 @@
+{
+ "w": 16,
+ "h": 16,
+ "fps": 4,
+ "tags": [
+  {
+   "name": "blink",
+   "from": 0,
+   "to": 1,
+   "dir": "forward"
+  }
+ ]
+}

@@ -1,0 +1,17 @@
+{
+ "w": 16,
+ "h": 14,
+ "fps": 8,
+ "tags": [
+  {
+   "name": "walk",
+   "from": 0,
+   "to": 1,
+   "dir": "forward"
+  }
+ ],
+ "durations": [
+  160,
+  160
+ ]
+}

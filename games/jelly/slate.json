@@ -1,0 +1,10 @@
+{
+  "name": "jelly-jump",
+  "title": "JellyJump",
+  "resolution": [
+    320,
+    180
+  ],
+  "background": "#5a8ce0",
+  "main": "scripts/main.luau"
+}

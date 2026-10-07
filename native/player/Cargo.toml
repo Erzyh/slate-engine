@@ -1,0 +1,22 @@
+[package]
+license = "MIT"
+name = "slate-player"
+version = "0.1.3"
+edition = "2021"
+description = "Slate native game player: runs .slate cartridges on desktop and mobile"
+
+[[bin]]
+name = "slate-player"
+path = "src/main.rs"
+
+[dependencies]
+macroquad = { version = "0.4", default-features = false, features = ["audio"] }
+mlua = { version = "0.10", features = ["luau", "vendored", "serialize"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+base64 = "0.22"
+png = "0.17"
+miniz_oxide = "0.8"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+gilrs = "0.11"

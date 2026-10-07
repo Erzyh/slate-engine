@@ -1,0 +1,23 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>Slate Player</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+      canvas { width: 100vw; height: 100vh; display: block; }
+    </style>
+  </head>
+  <body>
+    <canvas id="c"></canvas>
+    <script type="module">
+      // Dev player: /play.html?cart=jelly (examples) or plays the editor's autosave.
+      import { Game } from "@slate/runtime";
+      import { example } from "/src/examples.ts";
+      const id = new URLSearchParams(location.search).get("cart");
+      const auto = localStorage.getItem("slate:autosave");
+      const cart = id ? example(id) : auto ? JSON.parse(auto) : example("jelly");
+      window.game = await Game.create(document.getElementById("c"), cart, { stats: true });
+    </script>
+  </body>
+</html>
