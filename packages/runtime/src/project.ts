@@ -21,6 +21,10 @@ export interface ProjectSettings {
   resolution: [number, number];
   background?: string;
   main?: string;
+  /** start in fullscreen */
+  fullscreen?: boolean;
+  /** the project's own palette colors (editor) */
+  palette?: string[];
 }
 
 /** Settings stored next to a sprite's PNG (sprites/NAME.json). */
@@ -85,6 +89,8 @@ export function packProject(files: Map<string, Uint8Array>): Cartridge {
     folders: {},
   };
   if (settings.title) cart.title = settings.title;
+  if (settings.fullscreen) cart.fullscreen = true;
+  if (settings.palette?.length) cart.palette = settings.palette;
   const folderOf = (kind: string, name: string, path: string) => {
     const dir = path.slice(0, path.lastIndexOf("/"));
     if (dir !== kind) cart.folders![`${kind}:${name}`] = dir;

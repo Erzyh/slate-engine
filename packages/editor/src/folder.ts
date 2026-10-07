@@ -2,6 +2,7 @@
 // a folder handle via the File System Access API. Saving writes only files that changed.
 
 import { base64, fromBase64 } from "@slate/runtime";
+import { confirmBox } from "./modal.ts";
 import { isTauri } from "./native.ts";
 
 export interface ProjectFolder {
@@ -102,7 +103,7 @@ export async function pickFolder(mode: "open" | "save"): Promise<ProjectFolder |
     if (!dir || Array.isArray(dir)) return null;
     const kind = await invoke<string>("project_probe", { dir });
     if (mode === "open" && kind !== "project") throw new Error("That folder has no slate.json - pick a Slate project folder");
-    if (mode === "save" && kind === "other" && !confirm(`"${dir}" is not empty. Save the project into it anyway?\n(Only slate.json and the scripts/ sprites/ maps/ music/ sounds/ folders are written.)`)) return null;
+    if (mode === "save" && kind === "other" && !(await confirmBox("Save into this folder?", `"${dir}" is not empty. Only slate.json and the scripts, sprites, maps, music and sounds folders are written.`, { ok: "Save here" }))) return null;
     return desktopFolder(dir);
   }
   if ("showDirectoryPicker" in window) {

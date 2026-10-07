@@ -60,12 +60,12 @@ const highlight = HighlightStyle.define([
 ]);
 
 const theme = EditorView.theme({
-  "&": { height: "100%", background: "#16131f", color: "#e8e2f5", fontSize: "13px" },
-  ".cm-content": { fontFamily: "Consolas, 'Cascadia Mono', monospace", caretColor: "#ffcc4d" },
-  ".cm-gutters": { background: "#1b1726", color: "#5a5478", border: "none" },
+  "&": { height: "100%", background: "#14151b", color: "#e7e8ee", fontSize: "13px" },
+  ".cm-content": { fontFamily: "'JetBrains Mono', 'Cascadia Mono', Consolas, monospace", caretColor: "#ffcd75" },
+  ".cm-gutters": { background: "#14151b", color: "#4f5263", border: "none" },
   // the active line is translucent so a selection on it still shows
   ".cm-activeLine": { background: "#ffffff08" },
-  ".cm-activeLineGutter": { background: "#ffffff08", color: "#a8a2c8" },
+  ".cm-activeLineGutter": { background: "#ffffff08", color: "#a4a7b5" },
   // selection: a clear blue like other code editors (dimmer when the editor isn't focused)
   ".cm-selectionBackground": { background: "#2c3d66 !important" },
   "&.cm-focused .cm-selectionBackground": { background: "#2f5aa8 !important" },
@@ -73,9 +73,9 @@ const theme = EditorView.theme({
   ".cm-selectionMatch": { background: "#2f5aa840", outline: "1px solid #2f5aa880" },
   ".cm-cursor": { borderLeftColor: "#ffcc4d" },
   ".cm-errorLine": { background: "#4a1a2a" },
-  ".cm-tooltip": { background: "#221e33", border: "1px solid #3a3456", color: "#e8e2f5" },
-  ".cm-tooltip-autocomplete ul li[aria-selected]": { background: "#3a3158" },
-  ".cm-panels": { background: "#1b1726", color: "#e8e2f5" },
+  ".cm-tooltip": { background: "#20212a", border: "1px solid #363948", color: "#e7e8ee" },
+  ".cm-tooltip-autocomplete ul li[aria-selected]": { background: "#2c4a86" },
+  ".cm-panels": { background: "#1b1c23", color: "#e7e8ee" },
   ".cm-searchMatch": { background: "#5a4d7a66" },
 }, { dark: true });
 
@@ -243,7 +243,7 @@ export class CodeEditor {
       const name = document.createElement("span");
       name.textContent = p.replace(/^scripts\//, "");
       const x = document.createElement("button");
-      x.textContent = "✕";
+      x.innerHTML = '<svg><use href="#i-close" /></svg>';
       x.title = "Close";
       x.onclick = (e) => {
         e.stopPropagation();

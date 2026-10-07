@@ -5,8 +5,10 @@
 // Object tool: place / drag / edit scene objects (enemies, items, spawn points) that the game
 // reads with objects("map"). Object x, y = bottom-center in map pixels.
 
+import { ask, askSize, codeName, confirmBox } from "./modal.ts";
 import type { MapLayer, MapObject, TileMap } from "@slate/runtime";
 import type { EditSprite, Project } from "./project.ts";
+import { canvasView, type CanvasView } from "./canvas-view.ts";
 
 export type MapTool = "pen" | "erase" | "fill" | "rect" | "picker" | "object";
 
@@ -32,6 +34,8 @@ export class MapEditor {
   layer = 0;
   tool: MapTool = "pen";
   zoom = 2;
+  private view: CanvasView;
+  private needFit = false;
   grid = true;
   brush: Brush = { w: 1, h: 1, tiles: [0] };
 
@@ -59,11 +63,12 @@ export class MapEditor {
     c.addEventListener("pointerleave", () => { this.hover = null; this.render(); });
     window.addEventListener("pointerup", () => this.pointerUp());
     c.addEventListener("contextmenu", (e) => e.preventDefault());
-    c.parentElement!.addEventListener("wheel", (e) => {
-      if (!e.ctrlKey) return;
-      e.preventDefault();
-      this.setZoom(this.zoom + (e.deltaY < 0 ? 1 : -1));
-    }, { passive: false });
+    new ResizeObserver(() => {
+      if (!this.needFit) return;
+      this.fitZoom();
+      if (!this.needFit) this.setZoom(this.zoom);
+    }).observe(c.parentElement!);
+    this.view = canvasView(c.parentElement!, c, { zoom: () => this.zoom, setZoom: (z) => this.setZoom(z), levels: [1, 2, 3, 4, 5, 6, 8, 10, 12] });
     this.palette.addEventListener("pointerdown", (e) => this.palDown(e));
     this.palette.addEventListener("pointermove", (e) => { if (e.buttons) this.palMove(e); });
     this.wireUi();
@@ -130,17 +135,21 @@ export class MapEditor {
     return list;
   }
 
+  /** Zoom so the map fills the view (once the view has a size: the Map tab may be hidden). */
   private fitZoom() {
     const t = this.tileset, m = this.map;
-    if (!t || !m) return;
     const wrap = this.canvas.parentElement!;
-    const fit = Math.floor(Math.min((wrap.clientWidth - 24) / (m.w * t.w), (wrap.clientHeight - 24) / (m.h * t.h)));
+    this.needFit = true;
+    if (!t || !m || wrap.clientWidth < 100 || wrap.clientHeight < 100) return;
+    this.needFit = false;
+    const fit = Math.floor(Math.min((wrap.clientWidth - 80) / (m.w * t.w), (wrap.clientHeight - 80) / (m.h * t.h)));
     this.zoom = Math.max(1, Math.min(8, fit || 2));
   }
 
   setZoom(z: number) {
+    this.needFit = false;
     this.zoom = Math.max(1, Math.min(12, Math.round(z)));
-    $("map-zoom").textContent = `${this.zoom}x`;
+    $("map-zoom").textContent = `${this.zoom * 100}%`;
     this.render();
   }
 
@@ -229,7 +238,7 @@ export class MapEditor {
     this.hover = [tx, ty];
     if (moved) {
       const v = this.data()?.[ty * this.map.w + tx];
-      $("map-info").textContent = `tile ${tx}, ${ty}${v !== undefined && v >= 0 ? ` · #${v}` : ""} · ${this.map.w}×${this.map.h} tiles`;
+      $("status-info").textContent = `tile ${tx}, ${ty}${v !== undefined && v >= 0 ? ` · #${v}` : ""} · ${this.map.w}×${this.map.h} tiles`;
     }
     if (this.tool === "object") {
       if (this.drag) this.objMove(e);
@@ -321,7 +330,7 @@ export class MapEditor {
 
   render() {
     const m = this.map, t = this.tileset, c = this.canvas;
-    $("map-zoom").textContent = `${this.zoom}x`;
+    $("map-zoom").textContent = `${this.zoom * 100}%`;
     $("map-empty").classList.toggle("hidden", !!(m && t));
     if (!m || !t) {
       c.width = c.height = 0;
@@ -499,7 +508,7 @@ export class MapEditor {
       const eye = document.createElement("button");
       const visible = l.visible !== false;
       eye.className = "eye" + (visible ? "" : " off");
-      eye.textContent = visible ? "◉" : "○";
+      eye.innerHTML = `<svg><use href="#${visible ? "i-eye" : "i-eye-off"}" /></svg>`;
       eye.onclick = (ev) => {
         ev.stopPropagation();
         l.visible = !visible;
@@ -512,25 +521,24 @@ export class MapEditor {
       name.textContent = l.name;
       el.append(eye, name);
       el.onclick = () => { this.layer = i; this.renderLayers(); this.render(); };
-      el.ondblclick = () => {
-        const n = prompt("Layer name (map(..., { layer = \"name\" }) in code)", l.name)?.trim();
+      el.ondblclick = async () => {
+        const n = await ask("Rename layer", l.name, { message: 'Used in code: map(name, x, y, { layer = "name" })', ok: "Rename" });
         if (n) { l.name = n; this.renderLayers(); this.hooks.changed(); }
       };
       list.appendChild(el);
     }
   }
 
-  private newMap() {
+  private async newMap() {
     const p = this.project;
     if (!p) return;
     if (!p.sprites.length) return this.hooks.status("Make a tileset first: a sprite whose frames are the tiles", true);
     const tileset = this.tileset?.name ?? $<HTMLSelectElement>("map-tileset").value ?? p.sprites[0].name;
     const t = p.get(tileset) ?? p.sprites[0];
     const [rw, rh] = p.cart.resolution;
-    const def = `${Math.ceil(rw / t.w)}x${Math.ceil(rh / t.h)}`;
-    const size = prompt(`New map using tileset "${t.name}" (${t.w}×${t.h} tiles). Size in tiles:`, def)?.match(/(\d+)\s*[x×]\s*(\d+)/);
+    const size = await askSize("New map", Math.ceil(rw / t.w), Math.ceil(rh / t.h), { message: `Tiles from "${t.name}" (${t.w}×${t.h} pixels each). One screen is ${Math.ceil(rw / t.w)}×${Math.ceil(rh / t.h)} tiles.`, unit: "tiles", ok: "Create" });
     if (!size) return;
-    const w = Math.min(1024, +size[1]), h = Math.min(1024, +size[2]);
+    const [w, h] = size;
     let name = "level", i = 2;
     while (p.maps.some((m) => m.name === name)) name = `level${i++}`;
     const layer = (n: string): MapLayer => ({ name: n, visible: true, data: new Array(w * h).fill(-1) });
@@ -542,12 +550,12 @@ export class MapEditor {
     this.hooks.status(`Map "${name}" created · draw it in code with map("${name}", 0, 0)`);
   }
 
-  private resizeMap() {
+  private async resizeMap() {
     const m = this.map;
     if (!m) return;
-    const size = prompt("Map size in tiles (content stays top-left)", `${m.w}x${m.h}`)?.match(/(\d+)\s*[x×]\s*(\d+)/);
+    const size = await askSize("Resize map", m.w, m.h, { message: "The tiles stay in the top-left corner.", unit: "tiles", ok: "Resize" });
     if (!size) return;
-    const w = Math.min(1024, +size[1]), h = Math.min(1024, +size[2]);
+    const [w, h] = size;
     this.undoStack = [];
     for (const l of m.layers) {
       const d = new Array(w * h).fill(-1);
@@ -566,17 +574,17 @@ export class MapEditor {
     $<HTMLSelectElement>("map-select").onchange = (e) => this.selectMap((e.target as HTMLSelectElement).value);
     $("map-new").onclick = () => this.newMap();
     $("map-resize").onclick = () => this.resizeMap();
-    $("map-del").onclick = () => {
+    $("map-del").onclick = async () => {
       const p = this.project, m = this.map;
-      if (!p || !m || !confirm(`Delete map "${m.name}"?`)) return;
+      if (!p || !m || !(await confirmBox(`Delete the map "${m.name}"?`, "Its tiles and objects are removed.", { ok: "Delete", danger: true }))) return;
       p.maps.splice(p.maps.indexOf(m), 1);
       this.selectMap(p.maps[0]?.name ?? null);
       this.hooks.changed();
     };
-    $("map-rename").onclick = () => {
+    $("map-rename").onclick = async () => {
       const m = this.map;
       if (!m) return;
-      const n = prompt("Map name (used in code: map(\"name\", x, y))", m.name)?.trim().replace(/[^\w-]/g, "_");
+      const n = await ask("Rename map", m.name, { message: 'Used in code: map("name", x, y)', clean: codeName, ok: "Rename" });
       if (!n || this.project!.maps.some((x) => x.name === n)) return;
       m.name = n;
       this.renderMapList();
@@ -593,8 +601,8 @@ export class MapEditor {
     };
     $<HTMLInputElement>("map-grid").onchange = (e) => { this.grid = (e.target as HTMLInputElement).checked; this.render(); };
     $<HTMLInputElement>("map-dim").onchange = () => this.render();
-    $("map-zoom-in").onclick = () => this.setZoom(this.zoom + 1);
-    $("map-zoom-out").onclick = () => this.setZoom(this.zoom - 1);
+    $("map-zoom-in").onclick = () => this.view.zoomTo(this.view.step(1));
+    $("map-zoom-out").onclick = () => this.view.zoomTo(this.view.step(-1));
     $<HTMLInputElement>("tile-solid").onchange = (e) => {
       const t = this.tileset;
       if (!t) return;
@@ -851,8 +859,8 @@ export class MapEditor {
     }
     const tools: Record<string, MapTool> = { b: "pen", e: "erase", g: "fill", u: "rect", i: "picker", o: "object" };
     if (tools[k]) { this.setTool(tools[k]); return true; }
-    if (e.key === "+" || e.key === "=") { this.setZoom(this.zoom + 1); return true; }
-    if (e.key === "-") { this.setZoom(this.zoom - 1); return true; }
+    if (e.key === "+" || e.key === "=") { $("map-zoom-in").click(); return true; }
+    if (e.key === "-") { $("map-zoom-out").click(); return true; }
     return false;
   }
 }

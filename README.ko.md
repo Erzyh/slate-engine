@@ -7,7 +7,7 @@
 <br>
 <br>
 
-**A pixel game engine where your pixel art becomes a game the moment you draw it**
+**도트를 찍으면 바로 게임이 되는 픽셀 게임 엔진**
 
 <br>
 
@@ -17,25 +17,23 @@
 [![Export](https://img.shields.io/badge/export-.exe%20%7C%20Web-73eff7?style=flat-square)](docs/editor.md#웹-게임으로-내보내기-itchio)
 [![Luau](https://img.shields.io/badge/script-Luau-00a2ff?style=flat-square)](docs/api.md)
 
-**English** · [한국어](README.ko.md)
+[English](README.md) · **한국어**
 
 <img src="docs/media/trailer.gif" width="800" alt="Slate trailer">
 
 </div>
 
-## Install
+## 설치
 
-Download `Slate_x.y.z_x64-setup.exe` from [Releases](https://github.com/Erzyh/slate-engine/releases/latest), install it and run it (Windows 10/11). When a new version comes out, the editor tells you and updates itself.
+[Releases](https://github.com/Erzyh/slate-engine/releases/latest)에서 `Slate_x.y.z_x64-setup.exe`를 받아 설치하고 실행하면 끝이다 (Windows 10/11). 새 버전이 나오면 에디터가 알려 주고 바로 업데이트한다.
 
-## Docs
+## 문서
 
-The docs are in Korean for now.
+- [시작하기](docs/getting-started.md): 템플릿으로 첫 게임 만들기
+- [에디터](docs/editor.md): 프로젝트 폴더, 픽셀·맵 에디터, 소리, 내보내기
+- [게임 코드 API](docs/api.md): Luau 함수와 표준 라이브러리 (애니메이션, 충돌, 카메라, 대화창, 메뉴…)
 
-- [Getting started](docs/getting-started.md): your first game from a template
-- [Editor](docs/editor.md): project folders, the pixel and map editors, sound, exporting
-- [Game code API](docs/api.md): Luau functions and the standard library (animation, collision, camera, dialog, menus…)
-
-## License
+## 라이선스
 
 - Slate: **MIT**
-- Bundled font ERXPIXEL: **SIL OFL 1.1**
+- 내장 글꼴 ERXPIXEL: **SIL OFL 1.1**

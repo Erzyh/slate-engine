@@ -336,7 +336,7 @@ export class Project {
     const json = (o: unknown) => enc.encode(JSON.stringify(o, null, 2) + "\n");
     const files = new Map<string, Uint8Array>();
     const c = this.cart;
-    files.set(PROJECT_FILE, json({ name: c.name, title: c.title ?? c.name, resolution: c.resolution, background: c.background, main: c.main }));
+    files.set(PROJECT_FILE, json({ name: c.name, title: c.title ?? c.name, resolution: c.resolution, background: c.background, main: c.main, ...(c.fullscreen ? { fullscreen: true } : {}), ...(c.palette?.length ? { palette: c.palette } : {}) }));
     for (const [path, src] of Object.entries(this.scripts)) files.set(path, enc.encode(src));
     for (const s of this.sprites) {
       const base = `${s.folder}/${s.name}`;

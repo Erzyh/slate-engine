@@ -176,6 +176,21 @@ fn export_windows(json: String, path: String) -> Result<u64, String> {
     Ok(out.len() as u64)
 }
 
+/// Open a web page (Help menu) in the default browser.
+#[tauri::command]
+fn open_url(url: String) -> Result<(), String> {
+    if !(url.starts_with("https://") || url.starts_with("http://")) {
+        return Err("only web links".into());
+    }
+    #[cfg(windows)]
+    let r = Command::new("rundll32").args(["url.dll,FileProtocolHandler", &url]).spawn();
+    #[cfg(target_os = "macos")]
+    let r = Command::new("open").arg(&url).spawn();
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let r = Command::new("xdg-open").arg(&url).spawn();
+    r.map(|_| ()).map_err(|e| e.to_string())
+}
+
 /// SLATE_UPDATE_TEST=<report file>: the editor checks for an update and downloads it (verifying the
 /// signature) without installing, then writes what happened to that file. For testing releases.
 #[tauri::command]
@@ -275,6 +290,7 @@ fn main() {
             export_windows,
             export_web,
             update_test,
+            open_url,
             update_test_report,
             project::project_read,
             project::project_write,

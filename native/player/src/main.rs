@@ -323,6 +323,17 @@ async fn main() {
                 err_written = game.error.clone();
             }
         }
+        // the editor's game view: live sprite / map edits in, errors out
+        #[cfg(target_arch = "wasm32")]
+        {
+            if let Some(new) = web::poll_cart().and_then(|b| cart::parse(&b).ok()) {
+                game.reload(&new);
+            }
+            if game.error != err_written {
+                web::report_error(game.error.as_deref().unwrap_or(""));
+                err_written = game.error.clone();
+            }
+        }
         game.eng.borrow_mut().mixer.play_queued().await;
 
         if let Some(n) = bench {

@@ -1,8 +1,11 @@
-// Pixel tab UI around the canvas: toolbar, layers panel, timeline (frames + tags),
-// image/sheet menus, color adjustment dialog and keyboard shortcuts.
+// Pixel tab UI around the canvas: tool options, color + palette, layers, timeline (frames + tag bars),
+// image / sheet operations, the color adjustment dialog and keyboard shortcuts.
 
+import { popupMenu } from "./menu.ts";
+import { ask, askSize, form } from "./modal.ts";
 import { adjust, canvasSize, contentBounds, flip, NO_ADJUST, outline, replaceColor, resample, rotate, type Adjust } from "./ops.ts";
-import type { PixelEditor, Tool } from "./pixel-editor.ts";
+import { isSelectTool, type BrushShape, type PixelEditor, type Tool } from "./pixel-editor.ts";
+import { canvasView } from "./canvas-view.ts";
 import { buildGif, buildSheet, pngBytes, sliceSheet } from "./sheet.ts";
 import { copyImage, type EditSprite, type Tag, type TagDir } from "./sprite.ts";
 
@@ -12,14 +15,35 @@ export interface PanelHooks {
   /** Frames/layers/size changed (sprite list, game, autosave). */
   structureChanged(): void;
   status(msg: string, error?: boolean): void;
+  /** right side of the status bar: sprite, size, frame, cursor */
+  info(msg: string): void;
   saveBinary(name: string, bytes: Uint8Array, ext: string, label: string): Promise<string | null>;
   saveText(name: string, text: string, ext: string, label: string): Promise<string | null>;
   addSprite(name: string, frames: ImageData[]): void;
+  /** the project palette changed (saved in slate.json) */
+  paletteChanged(colors: string[]): void;
 }
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
-const DIR_ICON: Record<TagDir, string> = { forward: "→", reverse: "←", pingpong: "↔" };
-const NEXT_DIR: Record<TagDir, TagDir> = { forward: "reverse", reverse: "pingpong", pingpong: "forward" };
+const DIR_NAME: Record<TagDir, string> = { forward: "Forward", reverse: "Reverse", pingpong: "Ping-pong" };
+const DIR_MARK: Record<TagDir, string> = { forward: "", reverse: "rev", pingpong: "ping-pong" };
+/** tag bar colors, in order */
+const TAG_COLORS = ["#7ee2b8", "#8ab4ff", "#f09bd0", "#ffcd75", "#c3a6ff", "#ff9f80", "#7fd7e8"];
+const TOOL_NAME: Record<Tool, string> = {
+  pen: "Pen", eraser: "Eraser", fill: "Fill", picker: "Color picker", line: "Line", rect: "Rectangle", ellipse: "Ellipse",
+  select: "Select", lasso: "Lasso", wand: "Magic wand",
+};
+const TOOL_HINT: Partial<Record<Tool, string>> = {
+  fill: "Shift+click replaces that color everywhere",
+  picker: "Alt+click picks with any tool",
+  rect: "Shift: filled",
+  ellipse: "Shift: filled",
+  select: "Shift adds · Alt subtracts · drag inside to move · handles resize",
+  lasso: "Shift adds · Alt subtracts · drag inside to move · handles resize",
+  wand: "Shift adds · Alt subtracts · drag inside to move · handles resize",
+};
+/** frame thumbnail width + gap (tag bars line up with it) */
+const FRAME_STEP = 48;
 
 function thumb(img: ImageData) {
   const c = document.createElement("canvas");
@@ -29,33 +53,40 @@ function thumb(img: ImageData) {
   return c;
 }
 
-function askSize(msg: string, def: string): [number, number] | null {
-  const m = prompt(msg, def)?.match(/(\d+)\s*[x×*, ]\s*(\d+)/);
-  if (!m) return null;
-  return [Math.max(1, Math.min(1024, +m[1])), Math.max(1, Math.min(1024, +m[2]))];
-}
-
 export class PixelPanels {
   private rangeFrom = 0;
   private rangeTo = 0;
   private activeTag: number | null = null;
   private adjustSnap: EditSprite | null = null;
+  private cursor: [number, number] | null = null;
 
   constructor(private ed: PixelEditor, private hooks: PanelHooks) {
     this.wireToolbar();
+    ed.onZoom = () => this.updateZoom();
+    this.wireColor();
     this.wireLayers();
     this.wireTimeline();
-    this.wireMenus();
+    this.wireSheetInput();
     this.wireAdjust();
     ed.onStructure = () => {
       this.refresh();
       hooks.structureChanged();
     };
     ed.onStatus = (s) => hooks.status(s);
+    ed.onCursor = (x, y, sel) => {
+      this.cursor = [x, y];
+      this.showInfo(sel);
+    };
+    ed.onPalette = (colors) => hooks.paletteChanged(colors);
   }
 
   get sprite() {
     return this.ed.sprite;
+  }
+
+  setProjectPalette(colors: string[]) {
+    this.ed.projectColors = [...colors];
+    this.ed.renderPalette();
   }
 
   /** Re-render everything that depends on the sprite. */
@@ -69,19 +100,31 @@ export class PixelPanels {
     this.renderFrames();
     this.renderTags();
     this.updateZoom();
+    this.showColor();
+    this.cursor = null;
+    this.showInfo(null);
   }
 
   /** Light refresh after painting: thumbnails only. */
   refreshThumbs() {
     const s = this.sprite;
     if (!s) return;
-    const fl = $("frame-list").children[this.ed.frame] as HTMLCanvasElement | undefined;
+    const fl = $("frame-list").children[this.ed.frame]?.querySelector("canvas");
     fl?.getContext("2d")!.putImageData(s.flat(this.ed.frame), 0, 0);
     const layerEls = $("layer-list").children;
     s.layers.forEach((l, i) => {
       const el = layerEls[s.layers.length - 1 - i] as HTMLElement | undefined;
       el?.querySelector("canvas")?.getContext("2d")!.putImageData(l.cels[this.ed.frame], 0, 0);
     });
+  }
+
+  private showInfo(sel: { w: number; h: number } | null) {
+    const s = this.sprite;
+    if (!s) return this.hooks.info("");
+    const parts = [s.name, `${s.w}×${s.h}`, `frame ${this.ed.frame + 1} / ${s.frameCount}`];
+    if (this.cursor) parts.push(`x ${this.cursor[0]}, y ${this.cursor[1]}`);
+    if (sel) parts.push(`selection ${sel.w}×${sel.h}`);
+    this.hooks.info(parts.join("   ·   "));
   }
 
   private structural(fn: (s: EditSprite) => void) {
@@ -96,22 +139,28 @@ export class PixelPanels {
     this.ed.onStructure();
   }
 
-  // ------------------------------------------------------------ toolbar
+  // ------------------------------------------------------------ tools + options
 
   setTool(t: Tool) {
     this.ed.setTool(t);
     for (const b of document.querySelectorAll<HTMLElement>("#tools button")) b.classList.toggle("active", b.dataset.tool === t);
+    // the options bar shows only what applies to this tool
+    $("tool-name").textContent = TOOL_NAME[t];
+    const brush = t === "pen" || t === "eraser" || t === "line";
+    $("opt-brush").classList.toggle("hidden", !brush);
+    $("opt-mirror").classList.toggle("hidden", !(brush || t === "fill" || t === "rect" || t === "ellipse"));
+    $("opt-select").classList.toggle("hidden", !isSelectTool(t));
+    $("opt-contiguous").classList.toggle("hidden", t !== "wand");
+    $("opt-hint").textContent = TOOL_HINT[t] ?? "";
   }
 
   private updateZoom() {
-    $("zoom-label").textContent = `${this.ed.zoom}x`;
+    $("zoom-label").textContent = `${this.ed.zoom * 100}%`;
   }
 
   private wireToolbar() {
     const ed = this.ed;
     for (const b of document.querySelectorAll<HTMLElement>("#tools button")) b.onclick = () => this.setTool(b.dataset.tool as Tool);
-    ed.onColor = () => ($<HTMLInputElement>("color").value = ed.colorHex());
-    $<HTMLInputElement>("color").oninput = (e) => ed.setColorHex((e.target as HTMLInputElement).value);
     const check = (id: string, fn: (v: boolean) => void) => {
       $<HTMLInputElement>(id).onchange = (e) => {
         fn((e.target as HTMLInputElement).checked);
@@ -126,14 +175,59 @@ export class PixelPanels {
     check("onion", (v) => (ed.onion = v));
     check("light-bg", (v) => (ed.lightBg = v));
     $<HTMLInputElement>("brush").onchange = (e) => this.setBrush(Number((e.target as HTMLInputElement).value));
-    $("zoom-in").onclick = () => { ed.setZoom(ed.zoom + Math.max(1, ed.zoom >> 2)); this.updateZoom(); };
-    $("zoom-out").onclick = () => { ed.setZoom(ed.zoom - Math.max(1, ed.zoom >> 2)); this.updateZoom(); };
+    for (const b of $("brush-shape").querySelectorAll<HTMLElement>("button")) {
+      b.onclick = () => {
+        ed.brushShape = b.dataset.shape as BrushShape;
+        for (const o of $("brush-shape").children) o.classList.toggle("active", o === b);
+        ed.render();
+      };
+    }
+    check("wand-contiguous", (v) => (ed.wandContiguous = v));
+    for (const b of $("opt-select").querySelectorAll<HTMLElement>("button[data-sel]")) b.onclick = () => this.command(`sel-${b.dataset.sel}`);
+    const view = canvasView($("canvas-wrap"), $<HTMLCanvasElement>("pixel-canvas"), {
+      zoom: () => ed.zoom,
+      setZoom: (z) => ed.setZoom(z),
+      levels: [1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48],
+      changed: () => this.updateZoom(),
+    });
+    $("zoom-in").onclick = () => view.zoomTo(view.step(1));
+    $("zoom-out").onclick = () => view.zoomTo(view.step(-1));
+    this.setTool("pen");
   }
 
   private setBrush(n: number) {
     this.ed.brush = Math.max(1, Math.min(16, Math.round(n) || 1));
     $<HTMLInputElement>("brush").value = String(this.ed.brush);
     this.ed.render();
+  }
+
+  // ------------------------------------------------------------ color
+
+  private showColor() {
+    const hex = this.ed.colorHex();
+    $<HTMLInputElement>("color").value = hex;
+    $("color-swatch").style.background = hex;
+    if (document.activeElement !== $("color-hex")) $<HTMLInputElement>("color-hex").value = hex;
+  }
+
+  private wireColor() {
+    const ed = this.ed;
+    ed.onColor = () => this.showColor();
+    $<HTMLInputElement>("color").oninput = (e) => {
+      ed.setColorHex((e.target as HTMLInputElement).value);
+      this.showColor();
+    };
+    const hexIn = $<HTMLInputElement>("color-hex");
+    hexIn.oninput = () => {
+      const v = hexIn.value.trim();
+      const m = v.match(/^#?([0-9a-f]{6}|[0-9a-f]{3})$/i);
+      if (!m) return;
+      const h = m[1].length === 3 ? m[1].split("").map((c) => c + c).join("") : m[1];
+      ed.setColorHex(`#${h.toLowerCase()}`);
+      this.showColor();
+    };
+    hexIn.onblur = () => this.showColor();
+    $("palette-add").onclick = () => ed.addProjectColor();
   }
 
   // ------------------------------------------------------------ layers
@@ -149,8 +243,8 @@ export class PixelPanels {
       el.className = "layer" + (i === this.ed.layer ? " active" : "");
       const eye = document.createElement("button");
       eye.className = "eye" + (l.visible ? "" : " off");
-      eye.textContent = l.visible ? "◉" : "○";
-      eye.title = "Show / hide";
+      eye.innerHTML = `<svg><use href="#${l.visible ? "i-eye" : "i-eye-off"}" /></svg>`;
+      eye.title = l.visible ? "Hide" : "Show";
       eye.onclick = (e) => {
         e.stopPropagation();
         l.visible = !l.visible;
@@ -162,29 +256,29 @@ export class PixelPanels {
       const name = document.createElement("span");
       name.className = "lname";
       name.textContent = l.name;
-      const toggle = (cls: string, icon: string, on: boolean, title: string, flip: () => void) => {
+      const toggle = (cls: string, icon: string, on: boolean, title: string, flipIt: () => void) => {
         const b = document.createElement("button");
         b.className = `lock ${cls}` + (on ? " on" : "");
         b.title = title;
         b.innerHTML = `<svg><use href="#${icon}" /></svg>`;
         b.onclick = (ev) => {
           ev.stopPropagation();
-          flip();
+          flipIt();
           this.renderLayers();
           this.hooks.structureChanged();
         };
         return b;
       };
       const alpha = toggle("alpha", "i-alpha", !!l.alphaLock, "Lock transparency: paint only over existing pixels", () => (l.alphaLock = !l.alphaLock));
-      const lock = toggle("full", "i-lock", !!l.locked, "Lock layer: no painting", () => (l.locked = !l.locked));
+      const lock = toggle("full", "i-lock", !!l.locked, "Lock layer", () => (l.locked = !l.locked));
       el.append(eye, thumb(l.cels[this.ed.frame]), name, alpha, lock);
       el.onclick = () => {
         this.ed.commitFloating();
         this.ed.layer = i;
         this.renderLayers();
       };
-      el.ondblclick = () => {
-        const n = prompt("Layer name", l.name)?.trim();
+      el.ondblclick = async () => {
+        const n = await ask("Rename layer", l.name, { ok: "Rename" });
         if (n) {
           l.name = n;
           this.renderLayers();
@@ -193,7 +287,9 @@ export class PixelPanels {
       };
       list.appendChild(el);
     }
-    $<HTMLInputElement>("layer-opacity").value = String(Math.round((s.layers[this.ed.layer]?.opacity ?? 1) * 100));
+    const op = Math.round((s.layers[this.ed.layer]?.opacity ?? 1) * 100);
+    $<HTMLInputElement>("layer-opacity").value = String(op);
+    $("layer-opacity-v").textContent = `${op}%`;
   }
 
   private wireLayers() {
@@ -229,6 +325,7 @@ export class PixelPanels {
         snapped = true;
       }
       l.opacity = Number(op.value) / 100;
+      $("layer-opacity-v").textContent = `${op.value}%`;
       this.ed.render();
       this.hooks.pixelsChanged();
     };
@@ -257,14 +354,18 @@ export class PixelPanels {
     if (!s) return;
     const [a, b] = [Math.min(this.rangeFrom, this.rangeTo), Math.max(this.rangeFrom, this.rangeTo)];
     for (let i = 0; i < s.frameCount; i++) {
+      const box = document.createElement("div");
+      box.className = "frame";
       const c = thumb(s.flat(i));
-      if (i === this.ed.frame) c.classList.add("active");
-      else if (i >= a && i <= b && a !== b) c.classList.add("in-range");
-      const tags = s.tags.filter((t) => i >= t.from && i <= t.to).map((t) => t.name);
+      if (i === this.ed.frame) box.classList.add("active");
+      else if (i >= a && i <= b && a !== b) box.classList.add("in-range");
       const ms = s.durations[i] ?? 0;
-      c.title = `Frame ${i + 1} · ${Math.round(s.frameMs(i))} ms${ms > 0 ? " (own)" : ""}${tags.length ? ` · ${tags.join(", ")}` : ""}`;
-      if (ms > 0) c.classList.add("timed");
-      c.onclick = (e) => {
+      if (ms > 0) box.classList.add("timed");
+      const tags = s.tags.filter((t) => i >= t.from && i <= t.to).map((t) => t.name);
+      box.title = `Frame ${i + 1} · ${Math.round(s.frameMs(i))} ms${ms > 0 ? " (own time)" : ""}${tags.length ? ` · ${tags.join(", ")}` : ""}`;
+      const num = Object.assign(document.createElement("span"), { className: "num", textContent: String(i + 1) });
+      box.append(c, num);
+      box.onclick = (e) => {
         this.ed.commitFloating();
         this.ed.stopPreview();
         if (e.shiftKey) this.rangeTo = i;
@@ -274,8 +375,9 @@ export class PixelPanels {
         this.renderFrames();
         this.renderLayers();
         this.setPlayButton();
+        this.showInfo(null);
       };
-      list.appendChild(c);
+      list.appendChild(box);
     }
   }
 
@@ -288,34 +390,24 @@ export class PixelPanels {
     this.ed.render();
     this.renderFrames();
     this.renderLayers();
+    this.showInfo(null);
   }
 
+  /** Tags as colored bars over the frames they cover. */
   private renderTags() {
     const list = $("tag-list");
     list.innerHTML = "";
     const s = this.sprite;
     if (!s) return;
     s.tags.forEach((t, i) => {
-      const el = document.createElement("span");
-      el.className = "tag" + (i === this.activeTag ? " active" : "");
-      el.title = `${t.name}: frames ${t.from + 1}-${t.to + 1} · in code: spr("${s.name}", x, y, { anim = "${t.name}" })`;
-      const label = document.createElement("span");
-      label.textContent = `${t.name} ${t.from + 1}–${t.to + 1}`;
-      const dir = document.createElement("button");
-      dir.textContent = DIR_ICON[t.dir];
-      dir.title = "Direction: forward / reverse / ping-pong";
-      dir.onclick = (e) => {
-        e.stopPropagation();
-        this.structural(() => (t.dir = NEXT_DIR[t.dir]));
-      };
-      const del = document.createElement("button");
-      del.textContent = "✕";
-      del.title = "Delete tag";
-      del.onclick = (e) => {
-        e.stopPropagation();
-        this.structural((sp) => sp.tags.splice(i, 1));
-      };
-      el.append(label, dir, del);
+      const el = document.createElement("div");
+      el.className = "tag-bar" + (i === this.activeTag ? " active" : "");
+      el.style.left = `${t.from * FRAME_STEP}px`;
+      el.style.width = `${(t.to - t.from + 1) * FRAME_STEP - 4}px`;
+      el.style.background = TAG_COLORS[i % TAG_COLORS.length];
+      el.title = `${t.name}: frames ${t.from + 1}-${t.to + 1}, ${DIR_NAME[t.dir].toLowerCase()} · in code: Anim.new("${s.name}", "${t.name}") · right click for options`;
+      el.appendChild(Object.assign(document.createElement("span"), { textContent: t.name }));
+      if (DIR_MARK[t.dir]) el.appendChild(Object.assign(document.createElement("span"), { className: "dir", textContent: DIR_MARK[t.dir] }));
       el.onclick = () => {
         this.activeTag = this.activeTag === i ? null : i;
         if (this.activeTag !== null) {
@@ -328,9 +420,20 @@ export class PixelPanels {
         this.renderFrames();
         this.renderTags();
       };
-      el.ondblclick = () => {
-        const n = prompt("Tag name (used in code: anim = \"name\")", t.name)?.trim();
-        if (n) this.structural(() => (t.name = n.replace(/[^\w-]/g, "_")));
+      const rename = async () => {
+        const n = await ask("Rename tag", t.name, { message: 'Used in code: anim = "name"', clean: (v) => v.replace(/[^\w-]/g, "_"), ok: "Rename" });
+        if (n) this.structural(() => (t.name = n));
+      };
+      el.ondblclick = () => void rename();
+      el.oncontextmenu = (e) => {
+        e.preventDefault();
+        popupMenu(e.clientX, e.clientY, [
+          { label: "Rename", action: () => void rename() },
+          { header: "Play direction" },
+          ...(["forward", "reverse", "pingpong"] as TagDir[]).map((d) => ({ label: DIR_NAME[d], checked: t.dir === d, action: () => this.structural(() => (t.dir = d)) })),
+          "-",
+          { label: "Delete tag", action: () => this.structural((sp) => sp.tags.splice(i, 1)) },
+        ]);
       };
       list.appendChild(el);
     });
@@ -345,7 +448,7 @@ export class PixelPanels {
   private setPlayButton() {
     const b = $("anim-play");
     b.classList.toggle("playing", this.ed.previewing);
-    b.textContent = this.ed.previewing ? "■" : "▶";
+    b.innerHTML = `<svg><use href="#${this.ed.previewing ? "i-stop" : "i-play"}" /></svg>`;
   }
 
   private wireTimeline() {
@@ -387,34 +490,47 @@ export class PixelPanels {
       this.renderFrames();
       this.hooks.structureChanged();
     };
-    $("tag-add").onclick = () => {
+    $("tag-add").onclick = async () => {
       const s = this.sprite;
       if (!s) return;
       const [from, to] = [Math.min(this.rangeFrom, this.rangeTo), Math.max(this.rangeFrom, this.rangeTo)];
-      const name = prompt(`Tag name for frames ${from + 1}-${to + 1} (e.g. idle, walk, attack)`, s.tags.length ? "" : "idle")?.trim();
+      const name = await ask("Add tag", s.tags.length ? "" : "idle", {
+        message: `Frames ${from + 1} to ${to + 1}. Shift+click frames first to tag a range. Used in code: anim = "name".`,
+        placeholder: "walk",
+        clean: (v) => v.replace(/[^\w-]/g, "_"),
+        ok: "Add",
+      });
       if (!name) return;
       this.structural((sp) => {
-        sp.tags.push({ name: name.replace(/[^\w-]/g, "_"), from, to, dir: "forward" });
+        sp.tags.push({ name, from, to, dir: "forward" });
         this.activeTag = sp.tags.length - 1;
       });
     };
   }
 
-  // ------------------------------------------------------------ menus
+  // ------------------------------------------------------------ menu commands
 
-  private wireMenus() {
-    $<HTMLSelectElement>("image-menu").onchange = (e) => {
-      const sel = e.target as HTMLSelectElement;
-      const v = sel.value;
-      sel.value = "";
-      this.imageOp(v);
-    };
-    $<HTMLSelectElement>("sheet-menu").onchange = (e) => {
-      const sel = e.target as HTMLSelectElement;
-      const v = sel.value;
-      sel.value = "";
-      void this.sheetOp(v);
-    };
+  /** Edit menu commands for the pixel editor. */
+  command(cmd: string) {
+    const ed = this.ed;
+    switch (cmd) {
+      case "undo": ed.undo(false); this.refresh(); break;
+      case "redo": ed.undo(true); this.refresh(); break;
+      case "copy": ed.copy(); break;
+      case "cut": ed.copy(true); break;
+      case "paste": if (this.sprite) { ed.paste(); this.setTool(ed.tool); } break;
+      case "select-all": ed.selectAll(); this.setTool(ed.tool); break;
+      case "deselect": ed.deselect(); break;
+      case "sel-invert": case "invert-selection": ed.invertSelection(); if (!isSelectTool(ed.tool)) this.setTool("select"); break;
+      case "sel-fill": case "fill-selection": if (!ed.fillSelection()) this.hooks.status("Select something first"); break;
+      case "sel-clear": ed.clearSelection(); break;
+      case "sel-flip-h": case "sel-flip-v": case "sel-rot-cw": case "sel-rot-ccw":
+        if (!ed.transformSelection(cmd.slice(4) as "flip-h")) this.hooks.status("Select something first");
+        break;
+    }
+  }
+
+  private wireSheetInput() {
     $<HTMLInputElement>("sheet-input").onchange = async (e) => {
       const input = e.target as HTMLInputElement;
       const f = input.files?.[0];
@@ -428,7 +544,7 @@ export class PixelPanels {
       g.drawImage(bmp, 0, 0);
       const img = g.getImageData(0, 0, c.width, c.height);
       const guess = Math.min(img.width, img.height);
-      const size = askSize(`Frame size in pixels (sheet is ${img.width}×${img.height})`, `${guess}x${guess}`);
+      const size = await askSize("Import sprite sheet", guess, guess, { message: `The sheet is ${img.width} × ${img.height}. Enter the size of one frame.`, ok: "Import" });
       if (!size) return;
       const frames = sliceSheet(img, size[0], size[1]);
       this.hooks.addSprite(f.name.replace(/\.[^.]+$/, ""), frames);
@@ -436,11 +552,19 @@ export class PixelPanels {
     };
   }
 
-  private imageOp(op: string) {
+  async imageOp(op: string) {
     const ed = this.ed;
     const s = this.sprite;
     if (!s) return;
     const color = ed.color;
+    switch (op) {
+      case "flip-h":
+      case "flip-v":
+      case "rot-cw":
+      case "rot-ccw":
+        // with a selection, only the selected pixels turn
+        if (ed.hasSelection) return void ed.transformSelection(op);
+    }
     switch (op) {
       case "flip-h":
       case "flip-v":
@@ -474,7 +598,7 @@ export class PixelPanels {
         return this.structural((sp) => sp.mapCels((c) => resample(c, nw, nh)));
       }
       case "canvas": {
-        const size = askSize("Canvas size (width x height) - content stays centered", `${s.w}x${s.h}`);
+        const size = await askSize("Canvas size", s.w, s.h, { message: "The pixels stay centered.", ok: "Resize" });
         if (!size) return;
         const [nw, nh] = size;
         const ox = Math.floor((nw - s.w) / 2), oy = Math.floor((nh - s.h) / 2);
@@ -488,27 +612,37 @@ export class PixelPanels {
     }
   }
 
-  private async sheetOp(op: string) {
+  async sheetOp(op: string) {
     const s = this.sprite;
     if (op === "import-sheet") return $("sheet-input").click();
     if (!s) return;
     const tag = this.activeTag !== null ? s.tags[this.activeTag] : null;
     try {
       if (op === "export-sheet") {
-        const cols = Number(prompt("Columns (0 = all frames in one row)", "0") ?? "x");
-        if (Number.isNaN(cols)) return;
-        const { image, json } = buildSheet(s, cols, 0, tag);
+        const r = await form({
+          title: "Export sprite sheet",
+          message: tag ? `Frames of the tag "${tag.name}".` : "All frames.",
+          ok: "Export",
+          fields: [{ key: "cols", label: "Columns", type: "number", value: 0, min: 0, hint: "0 = every frame in one row" }],
+        });
+        if (!r) return;
+        const { image, json } = buildSheet(s, Math.max(0, Math.round(Number(r.cols))), 0, tag);
         const base = tag ? `${s.name}_${tag.name}` : s.name;
         const p = await this.hooks.saveBinary(`${base}.png`, await pngBytes(image), "png", "PNG image");
         if (!p) return;
         await this.hooks.saveText(`${base}.json`, json, "json", "Sheet data (Aseprite format)");
-        this.hooks.status(`Exported ${image.width}×${image.height} sheet + JSON`);
+        this.hooks.status(`Exported a ${image.width}×${image.height} sheet and its JSON`);
       } else if (op === "export-gif") {
-        const scale = Number(prompt("Scale (integer)", String(Math.max(1, Math.floor(256 / Math.max(s.w, s.h))))) ?? "x");
-        if (!scale || Number.isNaN(scale)) return;
-        const gif = buildGif(s, Math.max(1, Math.min(16, Math.round(scale))), tag);
+        const r = await form({
+          title: "Export animated GIF",
+          message: tag ? `Frames of the tag "${tag.name}".` : "All frames.",
+          ok: "Export",
+          fields: [{ key: "scale", label: "Scale", type: "number", value: Math.max(1, Math.floor(256 / Math.max(s.w, s.h))), min: 1, max: 16 }],
+        });
+        if (!r) return;
+        const gif = buildGif(s, Math.max(1, Math.min(16, Math.round(Number(r.scale)) || 1)), tag);
         const p = await this.hooks.saveBinary(`${tag ? `${s.name}_${tag.name}` : s.name}.gif`, gif, "gif", "Animated GIF");
-        if (p) this.hooks.status(`Exported GIF (${(gif.length / 1024).toFixed(0)} KB)`);
+        if (p) this.hooks.status(`Exported a GIF (${(gif.length / 1024).toFixed(0)} KB)`);
       }
     } catch (err) {
       this.hooks.status(String(err), true);
@@ -594,16 +728,18 @@ export class PixelPanels {
       return true;
     }
     if (mod) {
-      if (k === "z") { ed.undo(e.shiftKey); this.refresh(); return true; }
-      if (k === "y") { ed.undo(true); this.refresh(); return true; }
-      if (k === "c") { ed.copy(); return true; }
-      if (k === "x") { ed.copy(true); return true; }
-      if (k === "v") { if (this.sprite) { ed.paste(); this.setTool("select"); } return true; }
-      if (k === "a") { ed.selectAll(); this.setTool("select"); return true; }
-      if (k === "d") { ed.deselect(); return true; }
+      if (k === "z") { this.command(e.shiftKey ? "redo" : "undo"); return true; }
+      if (k === "y") { this.command("redo"); return true; }
+      if (k === "c") { this.command("copy"); return true; }
+      if (k === "x") { this.command("cut"); return true; }
+      if (k === "v") { this.command("paste"); return true; }
+      if (k === "a") { this.command("select-all"); return true; }
+      if (k === "d") { this.command("deselect"); return true; }
+      if (k === "i" && e.shiftKey) { this.command("invert-selection"); return true; }
       return false;
     }
-    const tools: Record<string, Tool> = { b: "pen", e: "eraser", g: "fill", i: "picker", l: "line", u: "rect", o: "ellipse", m: "select" };
+    if (e.altKey && e.key === "Backspace") { this.command("fill-selection"); return true; }
+    const tools: Record<string, Tool> = { b: "pen", e: "eraser", g: "fill", i: "picker", l: "line", u: "rect", o: "ellipse", m: "select", q: "lasso", w: "wand" };
     if (tools[k]) { this.setTool(tools[k]); return true; }
     switch (e.key) {
       case "[": this.setBrush(ed.brush - 1); return true;

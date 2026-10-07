@@ -1,13 +1,21 @@
 // Pixel canvas: drawing tools on the active layer/frame of an EditSprite.
 //
-// Tools: pen (brush size, pixel-perfect, dither), eraser, fill (shift: replace color everywhere),
-// picker, line, rect, ellipse (shift: filled), select (drag inside to move, copy/cut/paste).
+// Tools: pen (square or round brush, pixel-perfect, dither), eraser, fill (shift: replace color
+// everywhere), picker, line, rect, ellipse (shift: filled), and three ways to select: rectangle,
+// lasso and magic wand (shift adds, alt subtracts). A selection can be moved, resized with its
+// handles, flipped, rotated, filled, cleared, copied and pasted; painting stays inside it.
 // Mirror X/Y, onion skin, grid, undo/redo (cel-level for painting, sprite-level for structure).
 
 import { copyImage, type EditSprite } from "./sprite.ts";
+import { flip, resample, rotate } from "./ops.ts";
 
-export type Tool = "pen" | "eraser" | "fill" | "picker" | "line" | "rect" | "ellipse" | "select";
+export type Tool = "pen" | "eraser" | "fill" | "picker" | "line" | "rect" | "ellipse" | "select" | "lasso" | "wand";
+export type BrushShape = "square" | "circle";
 type RGBA = [number, number, number, number];
+type SelOp = "replace" | "add" | "subtract";
+type Handle = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
+
+export const isSelectTool = (t: Tool) => t === "select" || t === "lasso" || t === "wand";
 
 // Endesga 32 - a popular general purpose pixel art palette
 const BASE_PALETTE = [
@@ -24,9 +32,26 @@ interface Rect {
   h: number;
 }
 
+/** A selection: its bounding box and which pixels inside the box are selected (row by row). */
+export interface Selection extends Rect {
+  mask: Uint8Array;
+}
+
+/** Selected pixels lifted off the cel. src / srcMask are kept unscaled so resizing never degrades. */
+interface Floating {
+  src: ImageData;
+  srcMask: ImageData;
+  img: ImageData;
+  mask: ImageData;
+  x: number;
+  y: number;
+}
+
 type UndoEntry =
   | { kind: "cel"; layer: number; frame: number; data: Uint8ClampedArray }
   | { kind: "sprite"; snap: EditSprite; frame: number; layer: number };
+
+const HANDLES: Handle[] = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
 
 export class PixelEditor {
   sprite: EditSprite | null = null;
@@ -44,9 +69,12 @@ export class PixelEditor {
   pixelPerfect = true;
   dither = false;
   brush = 1;
-  selection: Rect | null = null;
-  private floating: { img: ImageData; x: number; y: number } | null = null;
-  private clipboard: ImageData | null = null;
+  brushShape: BrushShape = "square";
+  /** magic wand: only the touching area of the color (off: that color everywhere) */
+  wandContiguous = true;
+  selection: Selection | null = null;
+  private floating: Floating | null = null;
+  private clipboard: { img: ImageData; mask: ImageData } | null = null;
 
   private undoStack: UndoEntry[] = [];
   private redoStack: UndoEntry[] = [];
@@ -61,8 +89,15 @@ export class PixelEditor {
   private last: [number, number] | null = null;
   private before: Uint8ClampedArray | null = null; // active cel at stroke start
   private trail: [number, number][] = []; // pixel-perfect history
-  private dragSel: { dx: number; dy: number } | null = null;
   private hover: [number, number] | null = null;
+  // selection gestures
+  private dragSel: { dx: number; dy: number } | null = null;
+  private selOp: SelOp = "replace";
+  private dragRect: Rect | null = null;
+  private lassoPts: [number, number][] | null = null;
+  private scaling: { handle: Handle; box: Rect } | null = null;
+  private moved = false;
+  private needFit = false;
 
   private playTimer = 0;
   private playFrame: number | null = null;
@@ -73,6 +108,12 @@ export class PixelEditor {
   onStructure: () => void = () => {};
   onColor: () => void = () => {};
   onStatus: (s: string) => void = () => {};
+  onZoom: () => void = () => {};
+  /** Cursor position over the sprite (x, y) and the selection size, for the status bar. */
+  onCursor: (x: number, y: number, sel: { w: number; h: number } | null) => void = () => {};
+  /** The project's own palette colors; changes are reported with onPalette. */
+  projectColors: string[] = [];
+  onPalette: (colors: string[]) => void = () => {};
   /** One-shot color pick handler (e.g. "replace color"); return true to consume the pick. */
   onPick: ((rgb: [number, number, number]) => boolean) | null = null;
 
@@ -83,11 +124,12 @@ export class PixelEditor {
     canvas.addEventListener("pointerleave", () => { this.hover = null; this.render(); });
     window.addEventListener("pointerup", () => this.pointerUp());
     canvas.addEventListener("contextmenu", (e) => e.preventDefault());
-    canvas.parentElement!.addEventListener("wheel", (e) => {
-      if (!e.ctrlKey) return;
-      e.preventDefault();
-      this.setZoom(this.zoom * (e.deltaY < 0 ? 1.25 : 0.8));
-    }, { passive: false });
+    new ResizeObserver(() => {
+      if (!this.needFit) return;
+      this.fit();
+      this.render();
+      this.onZoom();
+    }).observe(canvas.parentElement!);
   }
 
   get cel(): ImageData | null {
@@ -101,16 +143,24 @@ export class PixelEditor {
     this.selection = null;
     this.frame = Math.min(frame, (s?.frameCount ?? 1) - 1);
     this.layer = Math.min(this.layer, (s?.layers.length ?? 1) - 1);
-    if (s) {
-      const wrap = this.canvas.parentElement!;
-      const fit = Math.floor(Math.min((wrap.clientWidth - 24) / s.w, (wrap.clientHeight - 24) / s.h));
-      this.zoom = Math.max(1, Math.min(32, fit || 8));
-    }
+    this.needFit = !!s;
+    this.fit();
     this.render();
     this.renderPalette();
   }
 
+  /** Zoom so the sprite fills the view (once the view has a size: it may still be hidden). */
+  private fit() {
+    const s = this.sprite;
+    const wrap = this.canvas.parentElement!;
+    if (!s || !this.needFit || wrap.clientWidth < 100 || wrap.clientHeight < 100) return;
+    this.needFit = false;
+    const fit = Math.floor(Math.min((wrap.clientWidth - 80) / s.w, (wrap.clientHeight - 80) / s.h));
+    this.zoom = Math.max(1, Math.min(32, fit));
+  }
+
   setZoom(z: number) {
+    this.needFit = false;
     this.zoom = Math.max(1, Math.min(48, Math.round(z)));
     this.render();
   }
@@ -126,8 +176,9 @@ export class PixelEditor {
   }
 
   setTool(t: Tool) {
-    if (t !== "select") this.commitFloating();
+    if (!isSelectTool(t)) this.commitFloating();
     this.tool = t;
+    this.canvas.style.cursor = "";
     this.render();
   }
 
@@ -185,45 +236,62 @@ export class PixelEditor {
     return [Math.floor((e.clientX - r.left) / this.zoom), Math.floor((e.clientY - r.top) / this.zoom)];
   }
 
+  /** The box of the floating piece or the selection. */
+  private selBox(): Rect | null {
+    const f = this.floating;
+    if (f) return { x: f.x, y: f.y, w: f.img.width, h: f.img.height };
+    return this.selection;
+  }
+
+  /** Is pixel (x, y) selected (in the floating piece while one is lifted)? */
   private inSelection(x: number, y: number) {
-    const s = this.floating ? { x: this.floating.x, y: this.floating.y, w: this.floating.img.width, h: this.floating.img.height } : this.selection;
-    return !!s && x >= s.x && y >= s.y && x < s.x + s.w && y < s.y + s.h;
+    const f = this.floating;
+    if (f) {
+      const i = x - f.x, j = y - f.y;
+      return i >= 0 && j >= 0 && i < f.mask.width && j < f.mask.height && f.mask.data[(j * f.mask.width + i) * 4 + 3] > 0;
+    }
+    return selHas(this.selection, x, y);
+  }
+
+  /** The resize handle under the pointer, if any (only with a selection tool). */
+  private handleAt(e: PointerEvent): Handle | null {
+    const b = this.selBox();
+    if (!b || !isSelectTool(this.tool)) return null;
+    const r = this.canvas.getBoundingClientRect();
+    const px = e.clientX - r.left, py = e.clientY - r.top;
+    for (const h of HANDLES) {
+      const [hx, hy] = handlePos(b, h, this.zoom);
+      if (Math.abs(px - hx) <= 6 && Math.abs(py - hy) <= 6) return h;
+    }
+    return null;
   }
 
   private pointerDown(e: PointerEvent) {
     const cel = this.cel;
-    if (!cel || !this.sprite) return;
+    if (!cel || !this.sprite || e.button === 1) return;
     this.stopPreview();
     const layer = this.sprite.layers[this.layer];
+    const selecting = isSelectTool(this.tool);
     if (!layer.visible) {
       this.onStatus("The active layer is hidden - show it to draw on it");
       return;
     }
-    if (layer.locked && this.tool !== "picker" && this.tool !== "select" && !e.altKey) {
+    if (layer.locked && this.tool !== "picker" && !selecting && !e.altKey) {
       this.onStatus("The active layer is locked - unlock it in the Layers panel");
       return;
     }
     this.canvas.setPointerCapture(e.pointerId);
     const [x, y] = this.cellAt(e);
-    if (this.tool === "picker" || e.altKey) return this.pick(x, y);
+    if (this.tool === "picker" || (e.altKey && !selecting)) return this.pick(x, y);
 
     this.down = true;
+    this.moved = false;
     this.erasing = e.button === 2 || this.tool === "eraser";
     this.filled = e.shiftKey;
     this.start = [x, y];
     this.last = [x, y];
 
-    if (this.tool === "select") {
-      if (this.inSelection(x, y)) {
-        if (!this.floating) this.lift();
-        this.dragSel = { dx: x - this.floating!.x, dy: y - this.floating!.y };
-      } else {
-        this.commitFloating();
-        this.selection = { x, y, w: 1, h: 1 };
-      }
-      this.render();
-      return;
-    }
+    if (selecting) return this.selectDown(e, x, y);
 
     this.commitFloating();
     this.celUndo();
@@ -240,16 +308,51 @@ export class PixelEditor {
     this.changed();
   }
 
+  private selectDown(e: PointerEvent, x: number, y: number) {
+    const handle = this.handleAt(e);
+    if (handle) {
+      if (!this.floating) this.lift();
+      const f = this.floating!;
+      this.scaling = { handle, box: { x: f.x, y: f.y, w: f.img.width, h: f.img.height } };
+      this.render();
+      return;
+    }
+    const op: SelOp = e.shiftKey ? "add" : e.altKey ? "subtract" : "replace";
+    if (op === "replace" && this.inSelection(x, y)) {
+      if (!this.floating) this.lift();
+      this.dragSel = { dx: x - this.floating!.x, dy: y - this.floating!.y };
+      this.render();
+      return;
+    }
+    this.commitFloating();
+    this.selOp = op;
+    if (this.tool === "wand") {
+      this.down = false;
+      this.applySelection(this.wandMask(x, y));
+    } else if (this.tool === "select") this.dragRect = { x, y, w: 1, h: 1 };
+    else this.lassoPts = [[x, y]];
+    this.render();
+  }
+
   private pointerMove(e: PointerEvent) {
     const [x, y] = this.cellAt(e);
     const moved = !this.hover || this.hover[0] !== x || this.hover[1] !== y;
     this.hover = [x, y];
-    if (moved && this.sprite) this.onStatus(`${x}, ${y}${this.selection ? `  ·  sel ${this.selection.w}×${this.selection.h}` : ""}`);
+    if (moved && this.sprite) {
+      const b = this.selBox();
+      this.onCursor(x, y, b ? { w: b.w, h: b.h } : null);
+    }
+    if (this.scaling) return this.scaleTo(e);
+    if (!this.down && isSelectTool(this.tool)) {
+      const h = this.handleAt(e);
+      this.canvas.style.cursor = h ? `${h}-resize` : this.inSelection(x, y) ? "move" : "";
+    }
     if (!this.down || !this.cel || !this.last) {
       if (moved) this.render();
       return;
     }
     if (x === this.last[0] && y === this.last[1]) return;
+    this.moved = true;
     const cel = this.cel;
 
     switch (this.tool) {
@@ -276,13 +379,19 @@ export class PixelEditor {
         for (const [px, py] of pts) this.plot(cel, px, py);
         break;
       }
-      case "select": {
+      case "select":
+      case "lasso":
+      case "wand": {
         if (this.dragSel && this.floating) {
           this.floating.x = x - this.dragSel.dx;
           this.floating.y = y - this.dragSel.dy;
-        } else if (this.selection) {
+        } else if (this.dragRect) {
           const [sx, sy] = this.start;
-          this.selection = { x: Math.min(sx, x), y: Math.min(sy, y), w: Math.abs(x - sx) + 1, h: Math.abs(y - sy) + 1 };
+          this.dragRect = { x: Math.min(sx, x), y: Math.min(sy, y), w: Math.abs(x - sx) + 1, h: Math.abs(y - sy) + 1 };
+        } else if (this.lassoPts) {
+          // fill gaps so fast strokes still enclose what they pass
+          const [lx, ly] = this.lassoPts[this.lassoPts.length - 1];
+          this.lassoPts.push(...line(lx, ly, x, y).slice(1));
         }
         this.last = [x, y];
         this.render();
@@ -293,13 +402,53 @@ export class PixelEditor {
     this.changed();
   }
 
+  /** Dragging a resize handle: new box from the pointer (Shift on a corner keeps the proportions). */
+  private scaleTo(e: PointerEvent) {
+    const f = this.floating, s = this.scaling;
+    if (!f || !s) return;
+    const r = this.canvas.getBoundingClientRect();
+    const px = Math.round((e.clientX - r.left) / this.zoom), py = Math.round((e.clientY - r.top) / this.zoom);
+    const b = s.box, h = s.handle;
+    let x0 = b.x, y0 = b.y, x1 = b.x + b.w, y1 = b.y + b.h;
+    if (h.includes("w")) x0 = Math.min(px, x1 - 1);
+    if (h.includes("e")) x1 = Math.max(px, x0 + 1);
+    if (h.includes("n")) y0 = Math.min(py, y1 - 1);
+    if (h.includes("s")) y1 = Math.max(py, y0 + 1);
+    if (e.shiftKey && h.length === 2) {
+      const k = Math.max((x1 - x0) / b.w, (y1 - y0) / b.h);
+      const w = Math.max(1, Math.round(b.w * k)), hh = Math.max(1, Math.round(b.h * k));
+      if (h.includes("w")) x0 = x1 - w; else x1 = x0 + w;
+      if (h.includes("n")) y0 = y1 - hh; else y1 = y0 + hh;
+    }
+    const w = x1 - x0, hh = y1 - y0;
+    if (w !== f.img.width || hh !== f.img.height) {
+      f.img = resample(f.src, w, hh);
+      f.mask = resample(f.srcMask, w, hh);
+    }
+    f.x = x0;
+    f.y = y0;
+    this.onCursor(px, py, { w, h: hh });
+    this.render();
+  }
+
   private pointerUp() {
-    if (!this.down) return;
+    if (!this.down && !this.scaling) return;
     this.down = false;
     this.dragSel = null;
     this.last = null;
     this.before = null;
-    if (this.tool === "select" && this.selection) this.selection = this.clampRect(this.selection);
+    this.scaling = null;
+    const s = this.sprite;
+    if (this.dragRect && s) {
+      const r = clampRect(this.dragRect, s.w, s.h);
+      if (!this.moved && this.selOp === "replace") this.selection = null; // a click outside deselects
+      else if (r) this.applySelection(rectMask(r, s.w, s.h));
+    } else if (this.lassoPts && s) {
+      if (this.lassoPts.length < 3 && this.selOp === "replace") this.selection = null;
+      else this.applySelection(polygonMask(this.lassoPts, s.w, s.h));
+    }
+    this.dragRect = null;
+    this.lassoPts = null;
     this.render();
   }
 
@@ -311,7 +460,8 @@ export class PixelEditor {
     if (layer?.locked) return;
     // alpha lock: only recolor existing pixels, never add or remove any
     if (layer?.alphaLock && (this.erasing || img.data[(y * img.width + x) * 4 + 3] === 0)) return;
-    if (this.selection && !this.floating && !(x >= this.selection.x && y >= this.selection.y && x < this.selection.x + this.selection.w && y < this.selection.y + this.selection.h)) return;
+    // with a selection, painting stays inside it
+    if (this.selection && !this.floating && !selHas(this.selection, x, y)) return;
     if (this.dither && !this.erasing && (x + y) % 2 !== 0) return;
     img.data.set(this.erasing ? [0, 0, 0, 0] : this.color, (y * img.width + x) * 4);
   }
@@ -320,8 +470,10 @@ export class PixelEditor {
   private plot(img: ImageData, x: number, y: number) {
     const b = this.brush;
     const o = Math.floor((b - 1) / 2);
+    const m = brushMask(b, this.brushShape);
     for (let dy = 0; dy < b; dy++) {
       for (let dx = 0; dx < b; dx++) {
+        if (!m[dy * b + dx]) continue;
         const px = x + dx - o, py = y + dy - o;
         this.setPx(img, px, py);
         if (this.mirrorX) this.setPx(img, img.width - 1 - px, py);
@@ -358,83 +510,83 @@ export class PixelEditor {
   }
 
   private floodFill(img: ImageData, x: number, y: number) {
-    const { width: w, height: h, data } = img;
-    if (x < 0 || y < 0 || x >= w || y >= h) return;
-    const at = (i: number) => (data[i * 4] << 24) | (data[i * 4 + 1] << 16) | (data[i * 4 + 2] << 8) | data[i * 4 + 3];
-    const target = at(y * w + x);
-    const stack = [y * w + x];
-    const seen = new Uint8Array(w * h);
-    while (stack.length) {
-      const i = stack.pop()!;
-      if (seen[i] || at(i) !== target) continue;
-      seen[i] = 1;
-      this.setPx(img, i % w, (i / w) | 0);
-      const px = i % w;
-      if (px > 0) stack.push(i - 1);
-      if (px < w - 1) stack.push(i + 1);
-      if (i >= w) stack.push(i - w);
-      if (i < w * (h - 1)) stack.push(i + w);
-    }
+    for (const i of sameColor(img, x, y, true)) this.setPx(img, i % img.width, (i / img.width) | 0);
   }
 
   /** Shift+fill: replace that exact color everywhere in the cel. */
   private replaceInCel(img: ImageData, x: number, y: number) {
-    if (x < 0 || y < 0 || x >= img.width || y >= img.height) return;
-    const o = (y * img.width + x) * 4;
-    const t = img.data.slice(o, o + 4);
-    for (let i = 0; i < img.data.length; i += 4) {
-      if (img.data[i] === t[0] && img.data[i + 1] === t[1] && img.data[i + 2] === t[2] && img.data[i + 3] === t[3]) {
-        this.setPx(img, (i / 4) % img.width, ((i / 4) / img.width) | 0);
-      }
-    }
+    for (const i of sameColor(img, x, y, false)) this.setPx(img, i % img.width, (i / img.width) | 0);
   }
 
   // ------------------------------------------------------------ selection
 
-  private clampRect(r: Rect): Rect | null {
+  /** Combine a whole-sprite mask with the current selection (replace / add / subtract). */
+  private applySelection(full: Uint8Array) {
+    const s = this.sprite;
+    if (!s) return;
+    if (this.selOp !== "replace" && this.selection) {
+      const cur = toFull(this.selection, s.w, s.h);
+      for (let i = 0; i < full.length; i++) full[i] = this.selOp === "add" ? cur[i] | full[i] : cur[i] & (full[i] ^ 1);
+    } else if (this.selOp === "subtract") return;
+    this.selection = fromFull(full, s.w, s.h);
+  }
+
+  /** Magic wand: the touching area of the clicked color (or that color everywhere). */
+  private wandMask(x: number, y: number) {
     const s = this.sprite!;
-    const x0 = Math.max(0, r.x), y0 = Math.max(0, r.y);
-    const x1 = Math.min(s.w, r.x + r.w), y1 = Math.min(s.h, r.y + r.h);
-    return x1 > x0 && y1 > y0 ? { x: x0, y: y0, w: x1 - x0, h: y1 - y0 } : null;
+    const full = new Uint8Array(s.w * s.h);
+    for (const i of sameColor(this.cel!, x, y, this.wandContiguous)) full[i] = 1;
+    return full;
   }
 
-  private region(img: ImageData, r: Rect) {
-    const out = new ImageData(r.w, r.h);
-    for (let y = 0; y < r.h; y++) {
-      const src = ((r.y + y) * img.width + r.x) * 4;
-      out.data.set(img.data.subarray(src, src + r.w * 4), y * r.w * 4);
-    }
-    return out;
-  }
-
-  /** Cut the selected pixels out of the cel into a floating piece that can be dragged. */
+  /** Cut the selected pixels out of the cel into a floating piece that can be dragged or resized. */
   private lift() {
     const cel = this.cel;
-    if (!cel || !this.selection) return;
+    const sel = this.selection;
+    if (!cel || !sel) return;
     this.celUndo();
-    const r = this.selection;
-    this.floating = { img: this.region(cel, r), x: r.x, y: r.y };
-    for (let y = 0; y < r.h; y++) cel.data.fill(0, ((r.y + y) * cel.width + r.x) * 4, ((r.y + y) * cel.width + r.x + r.w) * 4);
+    const src = new ImageData(sel.w, sel.h);
+    const srcMask = new ImageData(sel.w, sel.h);
+    for (let j = 0; j < sel.h; j++)
+      for (let i = 0; i < sel.w; i++) {
+        if (!sel.mask[j * sel.w + i]) continue;
+        const o = ((sel.y + j) * cel.width + sel.x + i) * 4, d = (j * sel.w + i) * 4;
+        src.data.set(cel.data.subarray(o, o + 4), d);
+        srcMask.data[d + 3] = 255;
+        cel.data.fill(0, o, o + 4);
+      }
+    this.floating = { src, srcMask, img: copyImage(src), mask: copyImage(srcMask), x: sel.x, y: sel.y };
   }
 
   commitFloating() {
     const f = this.floating;
     const cel = this.cel;
-    if (!f || !cel) {
+    const s = this.sprite;
+    if (!f || !cel || !s) {
       this.floating = null;
       return;
     }
     stamp(cel, f.img, f.x, f.y);
-    this.selection = this.sprite ? this.clampRect({ x: f.x, y: f.y, w: f.img.width, h: f.img.height }) : null;
+    const full = new Uint8Array(s.w * s.h);
+    for (let j = 0; j < f.mask.height; j++)
+      for (let i = 0; i < f.mask.width; i++) {
+        const x = f.x + i, y = f.y + j;
+        if (x >= 0 && y >= 0 && x < s.w && y < s.h && f.mask.data[(j * f.mask.width + i) * 4 + 3]) full[y * s.w + x] = 1;
+      }
+    this.selection = fromFull(full, s.w, s.h);
     this.floating = null;
     this.changed();
+  }
+
+  get hasSelection() {
+    return !!(this.selection || this.floating);
   }
 
   selectAll() {
     if (!this.sprite) return;
     this.commitFloating();
-    this.tool = "select";
-    this.selection = { x: 0, y: 0, w: this.sprite.w, h: this.sprite.h };
+    if (!isSelectTool(this.tool)) this.tool = "select";
+    this.selection = fromFull(new Uint8Array(this.sprite.w * this.sprite.h).fill(1), this.sprite.w, this.sprite.h);
     this.render();
   }
 
@@ -444,27 +596,85 @@ export class PixelEditor {
     this.render();
   }
 
+  invertSelection() {
+    const s = this.sprite;
+    if (!s) return;
+    this.commitFloating();
+    const full = this.selection ? toFull(this.selection, s.w, s.h) : new Uint8Array(s.w * s.h);
+    for (let i = 0; i < full.length; i++) full[i] ^= 1;
+    this.selection = fromFull(full, s.w, s.h);
+    this.render();
+  }
+
+  /** Paint every selected pixel with the current color. */
+  fillSelection() {
+    this.commitFloating();
+    const cel = this.cel, sel = this.selection;
+    if (!cel || !sel || this.sprite?.layers[this.layer].locked) return false;
+    this.celUndo();
+    for (let j = 0; j < sel.h; j++)
+      for (let i = 0; i < sel.w; i++)
+        if (sel.mask[j * sel.w + i]) cel.data.set(this.color, ((sel.y + j) * cel.width + sel.x + i) * 4);
+    this.changed();
+    return true;
+  }
+
+  /** Flip or rotate the selected pixels (lifting them first). Returns false without a selection. */
+  transformSelection(op: "flip-h" | "flip-v" | "rot-cw" | "rot-ccw") {
+    if (!this.floating) this.lift();
+    const f = this.floating;
+    if (!f) return false;
+    if (op === "flip-h" || op === "flip-v") {
+      const h = op === "flip-h";
+      f.src = flip(f.src, h);
+      f.srcMask = flip(f.srcMask, h);
+      f.img = flip(f.img, h);
+      f.mask = flip(f.mask, h);
+    } else {
+      const cw = op === "rot-cw";
+      const [w, h] = [f.img.width, f.img.height];
+      f.src = rotate(f.src, cw);
+      f.srcMask = rotate(f.srcMask, cw);
+      f.img = rotate(f.img, cw);
+      f.mask = rotate(f.mask, cw);
+      // turn around the center
+      f.x += Math.floor((w - h) / 2);
+      f.y += Math.floor((h - w) / 2);
+    }
+    this.changed();
+    return true;
+  }
+
   copy(cut = false) {
     const cel = this.cel;
     if (!cel) return;
     if (this.floating) {
-      this.clipboard = copyImage(this.floating.img);
+      this.clipboard = { img: copyImage(this.floating.img), mask: copyImage(this.floating.mask) };
       if (cut) this.floating = null;
       this.changed();
       return;
     }
-    const r = this.selection ?? { x: 0, y: 0, w: cel.width, h: cel.height };
-    this.clipboard = this.region(cel, r);
+    const sel = this.selection ?? fromFull(new Uint8Array(cel.width * cel.height).fill(1), cel.width, cel.height)!;
+    const img = new ImageData(sel.w, sel.h), mask = new ImageData(sel.w, sel.h);
+    for (let j = 0; j < sel.h; j++)
+      for (let i = 0; i < sel.w; i++) {
+        if (!sel.mask[j * sel.w + i]) continue;
+        const o = ((sel.y + j) * cel.width + sel.x + i) * 4, d = (j * sel.w + i) * 4;
+        img.data.set(cel.data.subarray(o, o + 4), d);
+        mask.data[d + 3] = 255;
+      }
+    this.clipboard = { img, mask };
     if (cut) this.clearSelection();
   }
 
   paste() {
-    if (!this.clipboard || !this.cel) return;
+    const c = this.clipboard;
+    if (!c || !this.cel) return;
     this.commitFloating();
     this.celUndo();
     const x = this.selection?.x ?? 0, y = this.selection?.y ?? 0;
-    this.floating = { img: copyImage(this.clipboard), x, y };
-    this.tool = "select";
+    this.floating = { src: copyImage(c.img), srcMask: copyImage(c.mask), img: copyImage(c.img), mask: copyImage(c.mask), x, y };
+    if (!isSelectTool(this.tool)) this.tool = "select";
     this.onStructure();
     this.render();
   }
@@ -477,10 +687,12 @@ export class PixelEditor {
       this.changed();
       return;
     }
-    const r = this.selection;
-    if (!r) return;
+    const sel = this.selection;
+    if (!sel) return;
     this.celUndo();
-    for (let y = 0; y < r.h; y++) cel.data.fill(0, ((r.y + y) * cel.width + r.x) * 4, ((r.y + y) * cel.width + r.x + r.w) * 4);
+    for (let j = 0; j < sel.h; j++)
+      for (let i = 0; i < sel.w; i++)
+        if (sel.mask[j * sel.w + i]) cel.data.fill(0, ((sel.y + j) * cel.width + sel.x + i) * 4, ((sel.y + j) * cel.width + sel.x + i) * 4 + 4);
     this.changed();
   }
 
@@ -560,14 +772,14 @@ export class PixelEditor {
       g.globalAlpha = 1;
     };
     const frame = this.playFrame ?? this.frame;
-    if (this.onion && this.playFrame === null) {
+    const live = this.playFrame === null;
+    if (this.onion && live) {
       if (frame > 0) draw(s.flat(frame - 1), 0.28);
       if (frame < s.frameCount - 1) draw(s.flat(frame + 1), 0.14);
     }
     draw(s.flat(frame));
-    if (this.floating && this.playFrame === null) {
-      const f = this.floating;
-      sg.clearRect(0, 0, W, H);
+    const f = this.floating;
+    if (f && live) {
       this.scratch.width = f.img.width;
       this.scratch.height = f.img.height;
       sg.putImageData(f.img, 0, 0);
@@ -581,61 +793,265 @@ export class PixelEditor {
       for (let y = 0; y <= H; y++) { g.moveTo(0, y * z + 0.5); g.lineTo(c.width, y * z + 0.5); }
       g.stroke();
     }
-    // selection marquee
-    const sel = this.floating ? { x: this.floating.x, y: this.floating.y, w: this.floating.img.width, h: this.floating.img.height } : this.selection;
-    if (sel && this.playFrame === null) {
+    if (!live) return;
+
+    // selection outline (marching-ants style: black and white dashes)
+    const ants = () => {
       g.save();
       g.lineWidth = 1;
       g.setLineDash([4, 4]);
       g.strokeStyle = "#000";
-      g.strokeRect(sel.x * z + 0.5, sel.y * z + 0.5, sel.w * z - 1, sel.h * z - 1);
+      g.stroke();
       g.strokeStyle = "#fff";
       g.lineDashOffset = 4;
-      g.strokeRect(sel.x * z + 0.5, sel.y * z + 0.5, sel.w * z - 1, sel.h * z - 1);
+      g.stroke();
       g.restore();
+    };
+    if (f) {
+      const mw = f.mask.width;
+      maskPath(g, f.x, f.y, mw, f.mask.height, (i, j) => f.mask.data[(j * mw + i) * 4 + 3] > 0, z);
+      ants();
+    } else if (this.selection) {
+      const sel = this.selection;
+      maskPath(g, sel.x, sel.y, sel.w, sel.h, (i, j) => sel.mask[j * sel.w + i] === 1, z);
+      ants();
     }
-    // brush cursor
-    if (this.hover && !this.down && this.playFrame === null && ["pen", "eraser", "line", "rect", "ellipse"].includes(this.tool)) {
-      const o = Math.floor((this.brush - 1) / 2);
+    if (this.dragRect) {
+      const r = this.dragRect;
+      g.beginPath();
+      g.rect(r.x * z + 0.5, r.y * z + 0.5, r.w * z - 1, r.h * z - 1);
+      ants();
+    }
+    if (this.lassoPts) {
+      g.beginPath();
+      for (const [i, [px, py]] of this.lassoPts.entries()) {
+        if (i === 0) g.moveTo((px + 0.5) * z, (py + 0.5) * z);
+        else g.lineTo((px + 0.5) * z, (py + 0.5) * z);
+      }
+      ants();
+    }
+    // resize handles
+    const box = this.selBox();
+    if (box && isSelectTool(this.tool) && !this.dragRect && !this.lassoPts) {
+      g.fillStyle = "#fff";
+      g.strokeStyle = "#000";
+      g.lineWidth = 1;
+      for (const h of HANDLES) {
+        const [hx, hy] = handlePos(box, h, z);
+        g.fillRect(Math.round(hx) - 3, Math.round(hy) - 3, 7, 7);
+        g.strokeRect(Math.round(hx) - 3.5, Math.round(hy) - 3.5, 8, 8);
+      }
+    }
+    // brush cursor, in the brush's own shape
+    if (this.hover && !this.down && ["pen", "eraser", "line", "rect", "ellipse"].includes(this.tool)) {
+      const b = this.brush, o = Math.floor((b - 1) / 2), m = brushMask(b, this.brushShape);
+      maskPath(g, this.hover[0] - o, this.hover[1] - o, b, b, (i, j) => m[j * b + i] === 1, z);
       g.strokeStyle = "rgba(255,255,255,0.6)";
       g.lineWidth = 1;
-      g.strokeRect((this.hover[0] - o) * z + 0.5, (this.hover[1] - o) * z + 0.5, this.brush * z - 1, this.brush * z - 1);
+      g.stroke();
     }
   }
 
-  /** Base palette plus the colors already used in this sprite. */
+  /** Add the current color to the project palette. */
+  addProjectColor(hex = this.colorHex()) {
+    if (this.projectColors.includes(hex)) return;
+    this.projectColors = [...this.projectColors, hex];
+    this.onPalette(this.projectColors);
+    this.renderPalette();
+  }
+
+  removeProjectColor(hex: string) {
+    this.projectColors = this.projectColors.filter((c) => c !== hex);
+    this.onPalette(this.projectColors);
+    this.renderPalette();
+  }
+
+  /** Project colors, the base palette, and the colors already used in this sprite. */
   renderPalette() {
     const el = this.paletteEl;
     el.innerHTML = "";
     const cur = this.colorHex();
-    const add = (hex: string) => {
-      const d = document.createElement("div");
-      d.className = "sw" + (hex === cur ? " active" : "");
-      d.style.background = hex;
-      d.title = hex;
-      d.onclick = () => {
-        this.setColorHex(hex);
-        this.onColor();
-      };
-      el.appendChild(d);
+    const section = (label: string, colors: string[], o: { removable?: boolean; empty?: string } = {}) => {
+      const head = document.createElement("div");
+      head.className = "pal-label";
+      head.textContent = label;
+      const grid = document.createElement("div");
+      grid.className = "pal-grid";
+      for (const hex of colors) {
+        const d = document.createElement("div");
+        d.className = "sw" + (hex === cur ? " active" : "");
+        d.style.background = hex;
+        d.title = o.removable ? `${hex} · right click to remove` : hex;
+        d.onclick = () => {
+          this.setColorHex(hex);
+          this.onColor();
+        };
+        if (o.removable) {
+          d.oncontextmenu = (e) => {
+            e.preventDefault();
+            this.removeProjectColor(hex);
+          };
+        }
+        grid.appendChild(d);
+      }
+      if (!colors.length && o.empty) grid.appendChild(Object.assign(document.createElement("div"), { className: "pal-empty", textContent: o.empty }));
+      el.append(head, grid);
     };
-    BASE_PALETTE.forEach(add);
+    section("Project colors", this.projectColors, { removable: true, empty: "Pick a color and press Add" });
+    section("Palette", BASE_PALETTE);
     const used = new Set<string>();
     for (const l of this.sprite?.layers ?? []) {
       for (const f of l.cels) {
-        for (let i = 0; i < f.data.length && used.size < 64; i += 4) {
+        for (let i = 0; i < f.data.length && used.size < 32; i += 4) {
           if (f.data[i + 3] === 0) continue;
           used.add("#" + [f.data[i], f.data[i + 1], f.data[i + 2]].map((v) => v.toString(16).padStart(2, "0")).join(""));
         }
       }
     }
-    if (used.size) {
-      const sep = document.createElement("div");
-      sep.className = "sep";
-      el.appendChild(sep);
-      [...used].forEach(add);
-    }
+    if (used.size) section("In this sprite", [...used]);
   }
+
+}
+
+// ------------------------------------------------------------ brushes
+
+const brushCache = new Map<string, Uint8Array>();
+
+/** Which cells of a b×b brush are painted. Round brushes are tuned to look clean at small sizes. */
+export function brushMask(b: number, shape: BrushShape) {
+  const key = `${shape}${b}`;
+  let m = brushCache.get(key);
+  if (m) return m;
+  m = new Uint8Array(b * b);
+  const c = (b - 1) / 2;
+  // a radius a little under b/2 trims the corners: 3 -> plus, 4 -> rounded square, 5+ -> circle
+  const r2 = (b / 2 - 0.25) ** 2;
+  for (let y = 0; y < b; y++)
+    for (let x = 0; x < b; x++) m[y * b + x] = shape === "square" || b <= 2 || (x - c) ** 2 + (y - c) ** 2 <= r2 ? 1 : 0;
+  brushCache.set(key, m);
+  return m;
+}
+
+// ------------------------------------------------------------ selection helpers
+
+function selHas(sel: Selection | null, x: number, y: number) {
+  if (!sel) return false;
+  const i = x - sel.x, j = y - sel.y;
+  return i >= 0 && j >= 0 && i < sel.w && j < sel.h && sel.mask[j * sel.w + i] === 1;
+}
+
+function clampRect(r: Rect, W: number, H: number): Rect | null {
+  const x0 = Math.max(0, r.x), y0 = Math.max(0, r.y);
+  const x1 = Math.min(W, r.x + r.w), y1 = Math.min(H, r.y + r.h);
+  return x1 > x0 && y1 > y0 ? { x: x0, y: y0, w: x1 - x0, h: y1 - y0 } : null;
+}
+
+/** A selection as a whole-sprite mask. */
+function toFull(sel: Selection, W: number, H: number) {
+  const full = new Uint8Array(W * H);
+  for (let j = 0; j < sel.h; j++)
+    for (let i = 0; i < sel.w; i++) {
+      const x = sel.x + i, y = sel.y + j;
+      if (x >= 0 && y >= 0 && x < W && y < H && sel.mask[j * sel.w + i]) full[y * W + x] = 1;
+    }
+  return full;
+}
+
+/** A whole-sprite mask as a selection trimmed to its box (null when nothing is selected). */
+function fromFull(full: Uint8Array, W: number, H: number): Selection | null {
+  let x0 = W, y0 = H, x1 = -1, y1 = -1;
+  for (let y = 0; y < H; y++)
+    for (let x = 0; x < W; x++)
+      if (full[y * W + x]) {
+        if (x < x0) x0 = x;
+        if (x > x1) x1 = x;
+        if (y < y0) y0 = y;
+        if (y > y1) y1 = y;
+      }
+  if (x1 < 0) return null;
+  const w = x1 - x0 + 1, h = y1 - y0 + 1;
+  const mask = new Uint8Array(w * h);
+  for (let j = 0; j < h; j++) mask.set(full.subarray((y0 + j) * W + x0, (y0 + j) * W + x0 + w), j * w);
+  return { x: x0, y: y0, w, h, mask };
+}
+
+function rectMask(r: Rect, W: number, H: number) {
+  const full = new Uint8Array(W * H);
+  for (let y = r.y; y < r.y + r.h; y++) full.fill(1, y * W + r.x, y * W + r.x + r.w);
+  return full;
+}
+
+/** Pixels whose centers are inside the lasso polygon, plus the pixels the lasso passed over. */
+function polygonMask(pts: [number, number][], W: number, H: number) {
+  const full = new Uint8Array(W * H);
+  let minY = H, maxY = -1;
+  for (const [, y] of pts) {
+    minY = Math.min(minY, y);
+    maxY = Math.max(maxY, y);
+  }
+  for (let y = Math.max(0, minY); y <= Math.min(H - 1, maxY); y++) {
+    // even-odd scanline through the pixel centers (points are pixel centers too)
+    const xs: number[] = [];
+    for (let i = 0; i < pts.length; i++) {
+      const [ax, ay] = pts[i], [bx, by] = pts[(i + 1) % pts.length];
+      if ((ay <= y && by > y) || (by <= y && ay > y)) xs.push(ax + ((y - ay) / (by - ay)) * (bx - ax));
+    }
+    xs.sort((a, b) => a - b);
+    for (let k = 0; k + 1 < xs.length; k += 2)
+      for (let x = Math.max(0, Math.ceil(xs[k])); x <= Math.min(W - 1, Math.floor(xs[k + 1])); x++) full[y * W + x] = 1;
+  }
+  for (const [x, y] of pts) if (x >= 0 && y >= 0 && x < W && y < H) full[y * W + x] = 1;
+  return full;
+}
+
+/** Indices of the pixels with the same RGBA as (x, y): touching it, or anywhere. */
+function sameColor(img: ImageData, x: number, y: number, contiguous: boolean): number[] {
+  const { width: w, height: h, data } = img;
+  if (x < 0 || y < 0 || x >= w || y >= h) return [];
+  // every fully transparent pixel counts as the same "color"
+  const at = (i: number) => (data[i * 4 + 3] === 0 ? 0 : ((data[i * 4] << 24) | (data[i * 4 + 1] << 16) | (data[i * 4 + 2] << 8) | data[i * 4 + 3]));
+  const target = at(y * w + x);
+  const out: number[] = [];
+  if (!contiguous) {
+    for (let i = 0; i < w * h; i++) if (at(i) === target) out.push(i);
+    return out;
+  }
+  const stack = [y * w + x];
+  const seen = new Uint8Array(w * h);
+  while (stack.length) {
+    const i = stack.pop()!;
+    if (seen[i] || at(i) !== target) continue;
+    seen[i] = 1;
+    out.push(i);
+    const px = i % w;
+    if (px > 0) stack.push(i - 1);
+    if (px < w - 1) stack.push(i + 1);
+    if (i >= w) stack.push(i - w);
+    if (i < w * (h - 1)) stack.push(i + w);
+  }
+  return out;
+}
+
+/** The outline of a pixel mask (at ox, oy) as a path, in zoomed canvas pixels. */
+function maskPath(g: CanvasRenderingContext2D, ox: number, oy: number, w: number, h: number, has: (i: number, j: number) => boolean, z: number) {
+  const inside = (i: number, j: number) => i >= 0 && j >= 0 && i < w && j < h && has(i, j);
+  g.beginPath();
+  for (let j = 0; j < h; j++)
+    for (let i = 0; i < w; i++) {
+      if (!has(i, j)) continue;
+      const x0 = (ox + i) * z + 0.5, y0 = (oy + j) * z + 0.5, x1 = (ox + i + 1) * z - 0.5, y1 = (oy + j + 1) * z - 0.5;
+      if (!inside(i, j - 1)) { g.moveTo(x0 - 0.5, y0); g.lineTo(x1 + 0.5, y0); }
+      if (!inside(i, j + 1)) { g.moveTo(x0 - 0.5, y1); g.lineTo(x1 + 0.5, y1); }
+      if (!inside(i - 1, j)) { g.moveTo(x0, y0 - 0.5); g.lineTo(x0, y1 + 0.5); }
+      if (!inside(i + 1, j)) { g.moveTo(x1, y0 - 0.5); g.lineTo(x1, y1 + 0.5); }
+    }
+}
+
+/** Where handle h of box b sits, in zoomed canvas pixels. */
+function handlePos(b: Rect, h: Handle, z: number): [number, number] {
+  const x = h.includes("w") ? b.x * z : h.includes("e") ? (b.x + b.w) * z : (b.x + b.w / 2) * z;
+  const y = h.includes("n") ? b.y * z : h.includes("s") ? (b.y + b.h) * z : (b.y + b.h / 2) * z;
+  return [x, y];
 }
 
 // ------------------------------------------------------------ geometry helpers

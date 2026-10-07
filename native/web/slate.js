@@ -7,6 +7,10 @@
 (function () {
   let cart = new Uint8Array(0);
   let taken = null;
+  /** editor game view: runs inside the editor (cartridge and edits arrive by postMessage) */
+  let embed = false;
+  let pending = null;
+  const toEditor = (msg) => parent.postMessage({ slate: true, ...msg }, "*");
   const mem = () => wasm_memory.buffer;
   const bytes = (ptr, len) => new Uint8Array(mem(), ptr, len);
   const str = (ptr, len) => new TextDecoder().decode(bytes(ptr, len));
@@ -37,7 +41,9 @@
       for (const f of [1, 2]) {
         let k;
         while ((k = lines[f].indexOf("\n")) >= 0) {
-          (f === 1 ? console.log : console.error)(lines[f].slice(0, k));
+          const line = lines[f].slice(0, k);
+          if (embed) toEditor({ type: "log", line });
+          else (f === 1 ? console.log : console.error)(line);
           lines[f] = lines[f].slice(k + 1);
         }
       }
@@ -63,6 +69,13 @@
   const slate = {
     slate_cart_len: () => cart.length,
     slate_cart_read(dst) { bytes(dst, cart.length).set(cart); },
+    slate_cart_poll() {
+      if (!pending) return 0;
+      cart = pending;
+      pending = null;
+      return cart.length;
+    },
+    slate_error(p, n) { if (embed) toEditor({ type: "error", text: str(p, n) }); },
     slate_store_set(k, kl, v, vl) { try { localStorage.setItem(str(k, kl), str(v, vl)); } catch {} },
     slate_store_get(k, kl) {
       let v = null;
@@ -113,8 +126,40 @@
     instance.exports.__main_void();
   }
 
+  /** Inside the editor: wait for the cartridge, start at once, take live edits after that. */
+  function runEmbedded(opts) {
+    embed = true;
+    document.getElementById("start")?.remove();
+    const canvas = document.getElementById("glcanvas");
+    let started = false;
+    window.addEventListener("message", (e) => {
+      const m = e.data;
+      if (!m || m.slate !== true || m.type !== "cart") return;
+      const b = new Uint8Array(m.bytes);
+      if (!started) {
+        started = true;
+        cart = b;
+        canvas.focus();
+        window.addEventListener("pointerdown", () => canvas.focus());
+        start(opts.wasm ?? "slate-player.wasm").catch((err) => toEditor({ type: "error", text: String(err) }));
+      } else pending = b;
+    });
+    window.addEventListener("focus", () => toEditor({ type: "focus" }));
+    toEditor({ type: "ready" });
+  }
+
+  // a game, not a web page: no browser context menu, no reload / print / find / page zoom
+  window.addEventListener("contextmenu", (e) => e.preventDefault());
+  window.addEventListener("keydown", (e) => {
+    const k = e.key.toLowerCase();
+    const mod = e.ctrlKey || e.metaKey;
+    if (e.key === "F5" || e.key === "F3" || e.key === "F7" || (mod && "rpufgsjh+=-0".includes(k) && k.length === 1)) e.preventDefault();
+  }, true);
+  window.addEventListener("wheel", (e) => { if (e.ctrlKey) e.preventDefault(); }, { passive: false });
+
   /** Load game.slate and wait for a click / key (browsers only allow sound after one), then run. */
   window.slateRun = async function (opts = {}) {
+    if (opts.embed) return runEmbedded(opts);
     const overlay = document.getElementById("start");
     const res = await fetch(opts.cart ?? "game.slate");
     if (!res.ok) {

@@ -10,6 +10,11 @@ extern "C" {
     fn slate_store_remove(key: *const u8, key_len: u32);
     /// fills 16 buttons (standard mapping) + 4 axes; returns 1 if a pad is connected
     fn slate_pad(dst: *mut f32) -> u32;
+    /// editor game view: length of a new cartridge waiting (sprite / map edits), 0 = none;
+    /// it is then copied with slate_cart_read
+    fn slate_cart_poll() -> u32;
+    /// editor game view: the current script error ("" = fixed)
+    fn slate_error(text: *const u8, len: u32);
 }
 
 /// The cartridge the page loaded (game.slate next to index.html).
@@ -21,6 +26,21 @@ pub fn cart() -> Option<Vec<u8>> {
     let mut v = vec![0u8; n];
     unsafe { slate_cart_read(v.as_mut_ptr()) };
     Some(v)
+}
+
+/// A newer cartridge sent by the editor (live edits), if any.
+pub fn poll_cart() -> Option<Vec<u8>> {
+    let n = unsafe { slate_cart_poll() } as usize;
+    if n == 0 {
+        return None;
+    }
+    let mut v = vec![0u8; n];
+    unsafe { slate_cart_read(v.as_mut_ptr()) };
+    Some(v)
+}
+
+pub fn report_error(text: &str) {
+    unsafe { slate_error(text.as_ptr(), text.len() as u32) }
 }
 
 pub fn store_set(key: &str, val: &str) {

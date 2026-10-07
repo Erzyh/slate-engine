@@ -8,7 +8,7 @@
   <body>
     <svg width="0" height="0" style="position: absolute">
       <defs>
-        <!-- 16px tool icons, stroked with currentColor -->
+        <!-- 16px icons, stroked with currentColor (one set, one stroke width) -->
         <symbol id="i-pen" viewBox="0 0 16 16"><path d="M3 13l.8-3.2L11 2.6 13.4 5 6.2 12.2zM9.6 4l2.4 2.4" /></symbol>
         <symbol id="i-eraser" viewBox="0 0 16 16"><path d="M2.5 10.5l6-6 5 5-4 4h-3.5zM5.5 7.5l5 5M7 14.5h7" /></symbol>
         <symbol id="i-fill" viewBox="0 0 16 16"><path d="M2.5 8.5l5-5 5 5-5 5zM2.5 8.5h10M13.5 11c.8 1.4.8 2.5 0 2.5s-.8-1.1 0-2.5" /></symbol>
@@ -17,69 +17,57 @@
         <symbol id="i-rect" viewBox="0 0 16 16"><path d="M2.5 3.5h11v9h-11z" /></symbol>
         <symbol id="i-ellipse" viewBox="0 0 16 16"><ellipse cx="8" cy="8" rx="5.5" ry="4.5" /></symbol>
         <symbol id="i-select" viewBox="0 0 16 16"><path d="M2.5 2.5h11v11h-11z" stroke-dasharray="2 2" /></symbol>
-        <symbol id="i-play" viewBox="0 0 16 16"><path d="M4.5 3v10l8-5z" fill="currentColor" /></symbol>
+        <symbol id="i-lasso" viewBox="0 0 16 16"><path d="M5.2 10.6C3.4 9.9 2.5 8.6 2.5 7.2c0-2.6 2.5-4.7 5.6-4.7s5.4 2 5.4 4.4-2.4 4.2-5.4 4.2c-.8 0-1.6-.1-2.3-.3" stroke-dasharray="2 1.6" /><path d="M5.2 10.6c-.9.9-.8 2.2.3 2.6.9.3 1.4 1 1 1.8" /></symbol>
+        <symbol id="i-wand" viewBox="0 0 16 16"><path d="M2.5 13.5l7-7M8.5 5.5l2 2" /><path d="M11.5 1.8v2.4M10.3 3h2.4M13.8 6.3v1.8M12.9 7.2h1.8M6 2.2v1.6M5.2 3h1.6" /></symbol>
+        <symbol id="i-brush-sq" viewBox="0 0 16 16"><path d="M4 4h8v8H4z" fill="currentColor" stroke="none" /></symbol>
+        <symbol id="i-brush-round" viewBox="0 0 16 16"><circle cx="8" cy="8" r="4.6" fill="currentColor" stroke="none" /></symbol>
+        <symbol id="i-object" viewBox="0 0 16 16"><path d="M8 2l5 3v6l-5 3-5-3V5zM8 8v6M3 5l5 3 5-3" /></symbol>
+        <symbol id="i-play" viewBox="0 0 16 16"><path d="M5 3.2v9.6l7.5-4.8z" fill="currentColor" stroke="none" /></symbol>
+        <symbol id="i-stop" viewBox="0 0 16 16"><path d="M4 4h8v8H4z" fill="currentColor" stroke="none" /></symbol>
         <symbol id="i-restart" viewBox="0 0 16 16"><path d="M12.5 8a4.5 4.5 0 1 1-1.3-3.2M12.5 2.5v3h-3" /></symbol>
-        <symbol id="i-plug" viewBox="0 0 16 16"><path d="M5.5 2v3M10.5 2v3M3.5 5h9v3a4.5 4.5 0 0 1-9 0zM8 12.5V15" /></symbol>
-        <symbol id="i-monitor" viewBox="0 0 16 16"><path d="M2 3h12v8H2zM6 14h4M8 11v3" /></symbol>
+        <symbol id="i-plus" viewBox="0 0 16 16"><path d="M8 3v10M3 8h10" /></symbol>
+        <symbol id="i-copy" viewBox="0 0 16 16"><path d="M5.5 5.5h7v7h-7zM3.5 10.5v-7h7" /></symbol>
+        <symbol id="i-trash" viewBox="0 0 16 16"><path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 8.5h5.8l.6-8.5" /></symbol>
+        <symbol id="i-up" viewBox="0 0 16 16"><path d="M8 13V3M4 7l4-4 4 4" /></symbol>
+        <symbol id="i-down" viewBox="0 0 16 16"><path d="M8 3v10M4 9l4 4 4-4" /></symbol>
+        <symbol id="i-left" viewBox="0 0 16 16"><path d="M10 3.5L5.5 8l4.5 4.5" /></symbol>
+        <symbol id="i-right" viewBox="0 0 16 16"><path d="M6 3.5L10.5 8 6 12.5" /></symbol>
+        <symbol id="i-merge" viewBox="0 0 16 16"><path d="M3 3.5h10M3 6.5h10M8 8.5v4.5M5 10.5l3 2.5 3-2.5" /></symbol>
+        <symbol id="i-eye" viewBox="0 0 16 16"><path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z" /><circle cx="8" cy="8" r="2" /></symbol>
+        <symbol id="i-eye-off" viewBox="0 0 16 16"><path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8zM2.5 13.5l11-11" /></symbol>
         <symbol id="i-lock" viewBox="0 0 16 16"><path d="M4 7.5h8v6H4zM5.5 7.5V5a2.5 2.5 0 0 1 5 0v2.5" /></symbol>
         <symbol id="i-alpha" viewBox="0 0 16 16"><path d="M3 3h10v10H3z" /><path d="M3 3h5v5H3zM8 8h5v5H8z" fill="currentColor" stroke="none" /></symbol>
-        <symbol id="i-object" viewBox="0 0 16 16"><path d="M8 2l5 3v6l-5 3-5-3V5zM8 8v6M3 5l5 3 5-3" /></symbol>
-        <symbol id="i-move" viewBox="0 0 16 16"><path d="M8 2v12M2 8h12M8 2l-2 2M8 2l2 2M8 14l-2-2M8 14l2-2M2 8l2-2M2 8l2 2M14 8l-2-2M14 8l-2 2" /></symbol>
+        <symbol id="i-chevron" viewBox="0 0 16 16"><path d="M6 4l4 4-4 4" /></symbol>
+        <symbol id="i-close" viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8" /></symbol>
       </defs>
     </svg>
+
     <div id="app">
       <div id="update-banner" class="update-banner hidden"></div>
-      <header class="topbar">
-        <div class="brand"><span class="logo">◆</span> Slate</div>
-        <input id="cart-name" class="cart-name" spellcheck="false" title="Cartridge name" />
-        <div class="divider"></div>
-        <div class="group">
-          <select id="file-menu" class="ghost" title="Projects are folders: scripts/, sprites/, maps/, music/, sounds/">
-            <option value="">File…</option>
-            <option value="new">New project (blank)</option>
-            <option value="new:platformer">New from template: Platformer</option>
-            <option value="new:topdown">New from template: Top-down</option>
-            <option value="new:shmup">New from template: Shooter</option>
-            <option value="open">Open project folder… (Ctrl+O)</option>
-            <option value="save-as">Save project as…</option>
-            <option value="import">Import .slate cartridge…</option>
-            <option value="updates">Check for updates…</option>
-          </select>
-          <button id="btn-save" class="ghost" title="Save the project folder (Ctrl+S)">Save</button>
-          <select id="export" class="ghost" title="Build a standalone game">
-            <option value="">Export…</option>
-            <option value="windows">Windows game (.exe)</option>
-            <option value="web">Web game for itch.io (.zip)</option>
-            <option value="slate">Cartridge (.slate, one file)</option>
-          </select>
-          <select id="examples" class="ghost" title="Open an example">
-            <option value="">Examples…</option>
-            <option value="jelly">Jelly Jump (platformer)</option>
-            <option value="star-barrage">Star Barrage (bullet hell)</option>
-          </select>
+
+      <header class="titlebar">
+        <div class="tb-left">
+          <div class="brand"><span class="brand-mark"></span>Slate</div>
+          <nav id="menubar" class="menubar"></nav>
         </div>
-        <div class="spacer"></div>
-        <div class="group">
-          <button id="btn-plugins" class="ghost icon-text" title="Optional extensions such as AI image generation"><svg><use href="#i-plug" /></svg>Plugins</button>
+        <div class="tb-center">
+          <div class="run-controls">
+            <button id="btn-play" class="run-btn play" title="Play (Space)"><svg><use href="#i-play" /></svg><span>Play</span></button>
+            <button id="btn-restart" class="run-btn" title="Restart with the latest code (Ctrl+Enter)"><svg><use href="#i-restart" /></svg></button>
+          </div>
         </div>
-        <div class="divider"></div>
-        <div class="group">
-          <button id="btn-restart" class="icon-text" title="Reload code and restart (Ctrl+Enter)"><svg><use href="#i-restart" /></svg>Restart</button>
-          <button id="btn-play" class="play" title="Play / Pause (Space)">▶ Play</button>
+        <div class="tb-right">
+          <span id="project-title" class="project-title"></span>
+          <span id="save-state" class="save-state"></span>
         </div>
       </header>
 
       <aside class="sidebar">
         <div class="panel-head">
-          <span id="project-label" title="Project folder">Project</span>
-          <span class="spacer"></span>
-          <button id="btn-new-file" class="icon-btn" title="New script, sprite, map or folder; import files">+</button>
+          <span id="project-label">Project</span>
+          <button id="btn-new-file" class="icon-btn ghost" title="New script, sprite, map, sound or folder"><svg><use href="#i-plus" /></svg></button>
         </div>
         <div id="explorer" class="explorer"></div>
-        <div class="sidebar-actions">
-          <button id="btn-new-sprite" title="New blank sprite">+ Sprite</button>
-          <button id="btn-stamp" class="accent" title="Import an image (or paste with Ctrl+V) and snap it to a pixel grid">Grid Stamp</button>
-        </div>
         <input type="file" id="import-input" multiple accept=".png,.ogg,.wav,.luau,.lua,.json" hidden />
       </aside>
 
@@ -93,104 +81,108 @@
         <!-- PIXEL ------------------------------------------------------------------ -->
         <section id="tab-pixel" class="tab active">
           <div class="optbar">
-            <div class="opt-group">
-              <input type="color" id="color" value="#ffffff" title="Current color" />
+            <span id="tool-name" class="opt-title">Pen</span>
+            <div class="opt-group" id="opt-brush">
               <label class="num" title="Brush size ([ and ])">Size <input type="number" id="brush" min="1" max="16" value="1" /></label>
-            </div>
-            <div class="opt-group">
+              <div class="segmented sm" id="brush-shape">
+                <button data-shape="square" class="active" title="Square brush"><svg><use href="#i-brush-sq" /></svg></button>
+                <button data-shape="circle" title="Round brush"><svg><use href="#i-brush-round" /></svg></button>
+              </div>
               <label class="toggle" title="Removes L-shaped corners while drawing lines"><input type="checkbox" id="pixel-perfect" checked /><span>Pixel-perfect</span></label>
               <label class="toggle" title="Checkerboard brush"><input type="checkbox" id="dither" /><span>Dither</span></label>
+            </div>
+            <div class="opt-group" id="opt-mirror">
               <label class="toggle" title="Mirror horizontally"><input type="checkbox" id="mirror-x" /><span>Mirror X</span></label>
               <label class="toggle" title="Mirror vertically"><input type="checkbox" id="mirror-y" /><span>Mirror Y</span></label>
             </div>
-            <div class="spacer"></div>
-            <div class="opt-group">
-              <label class="toggle"><input type="checkbox" id="grid" checked /><span>Grid</span></label>
-              <label class="toggle" title="Show neighbor frames faintly"><input type="checkbox" id="onion" /><span>Onion</span></label>
-              <label class="toggle" title="Light checkerboard behind the sprite (dark outlines stand out)"><input type="checkbox" id="light-bg" /><span>Light BG</span></label>
+            <div class="opt-group hidden" id="opt-select">
+              <label class="toggle" id="opt-contiguous" title="Only the touching area · off: that color everywhere"><input type="checkbox" id="wand-contiguous" checked /><span>Contiguous</span></label>
+              <button class="ghost" data-sel="fill" title="Fill with the current color (Alt+Backspace)">Fill</button>
+              <button class="ghost" data-sel="clear" title="Delete the selected pixels (Del)">Delete</button>
+              <button class="ghost" data-sel="flip-h" title="Flip horizontally">Flip H</button>
+              <button class="ghost" data-sel="flip-v" title="Flip vertically">Flip V</button>
+              <button class="ghost" data-sel="rot-cw" title="Rotate 90° clockwise">Rotate</button>
+              <button class="ghost" data-sel="invert" title="Invert the selection (Ctrl+Shift+I)">Invert</button>
             </div>
-            <div class="opt-group">
-              <select id="image-menu" title="Image operations">
-                <option value="">Image</option>
-                <option value="flip-h">Flip horizontal</option>
-                <option value="flip-v">Flip vertical</option>
-                <option value="rot-cw">Rotate 90° right</option>
-                <option value="rot-ccw">Rotate 90° left</option>
-                <option value="outline">Add outline (current color)</option>
-                <option value="outline8">Add outline with corners</option>
-                <option value="replace">Replace color… (click a color, then current)</option>
-                <option value="adjust">Adjust colors… (hue / saturation / lightness)</option>
-                <option value="scale2">Scale ×2</option>
-                <option value="scale05">Scale ×½</option>
-                <option value="canvas">Canvas size…</option>
-                <option value="trim">Trim to content</option>
-              </select>
-              <select id="sheet-menu" title="Sprite sheets and GIF">
-                <option value="">Sheet</option>
-                <option value="export-sheet">Export sprite sheet (PNG + JSON)</option>
-                <option value="export-gif">Export animated GIF</option>
-                <option value="import-sheet">Import sprite sheet…</option>
-              </select>
-            </div>
-            <div class="zoom">
-              <button id="zoom-out" title="Zoom out (-)">−</button>
-              <span id="zoom-label">8x</span>
-              <button id="zoom-in" title="Zoom in (+)">+</button>
-            </div>
+            <span id="opt-hint" class="opt-hint"></span>
           </div>
           <div class="editor-body">
-            <div class="toolstrip" id="tools">
-              <button data-tool="pen" class="active" title="Pen (B)"><svg><use href="#i-pen" /></svg></button>
-              <button data-tool="eraser" title="Eraser (E) - right click also erases"><svg><use href="#i-eraser" /></svg></button>
-              <button data-tool="fill" title="Fill (G) - Shift: replace that color everywhere"><svg><use href="#i-fill" /></svg></button>
-              <button data-tool="picker" title="Color picker (I) - Alt+click also picks"><svg><use href="#i-picker" /></svg></button>
-              <div class="tool-sep"></div>
-              <button data-tool="line" title="Line (L)"><svg><use href="#i-line" /></svg></button>
-              <button data-tool="rect" title="Rectangle (U) - Shift: filled"><svg><use href="#i-rect" /></svg></button>
-              <button data-tool="ellipse" title="Ellipse (O) - Shift: filled"><svg><use href="#i-ellipse" /></svg></button>
-              <div class="tool-sep"></div>
-              <button data-tool="select" title="Select (M) - drag inside to move · Ctrl+C/X/V · Del"><svg><use href="#i-select" /></svg></button>
+            <div class="canvas-wrap" id="canvas-wrap">
+              <canvas id="pixel-canvas"></canvas>
+              <div class="toolbox" id="tools">
+                <button data-tool="pen" class="active" title="Pen (B)"><svg><use href="#i-pen" /></svg></button>
+                <button data-tool="eraser" title="Eraser (E) · right click also erases"><svg><use href="#i-eraser" /></svg></button>
+                <button data-tool="fill" title="Fill (G) · Shift: replace that color everywhere"><svg><use href="#i-fill" /></svg></button>
+                <button data-tool="picker" title="Color picker (I) · Alt+click also picks"><svg><use href="#i-picker" /></svg></button>
+                <div class="tool-sep"></div>
+                <button data-tool="line" title="Line (L)"><svg><use href="#i-line" /></svg></button>
+                <button data-tool="rect" title="Rectangle (U) · Shift: filled"><svg><use href="#i-rect" /></svg></button>
+                <button data-tool="ellipse" title="Ellipse (O) · Shift: filled"><svg><use href="#i-ellipse" /></svg></button>
+                <div class="tool-sep"></div>
+                <button data-tool="select" title="Rectangle select (M) · Shift adds, Alt subtracts"><svg><use href="#i-select" /></svg></button>
+                <button data-tool="lasso" title="Lasso (Q) · draw around what to select"><svg><use href="#i-lasso" /></svg></button>
+                <button data-tool="wand" title="Magic wand (W) · selects an area of one color"><svg><use href="#i-wand" /></svg></button>
+              </div>
+              <div class="viewbar">
+                <label class="toggle"><input type="checkbox" id="grid" checked /><span>Grid</span></label>
+                <label class="toggle" title="Show the neighbor frames faintly"><input type="checkbox" id="onion" /><span>Onion</span></label>
+                <label class="toggle" title="Light checkerboard behind the sprite"><input type="checkbox" id="light-bg" /><span>Light</span></label>
+                <span class="vb-sep"></span>
+                <button id="zoom-out" class="ghost icon-btn" title="Zoom out (-)">−</button>
+                <span id="zoom-label" class="zoom-label">800%</span>
+                <button id="zoom-in" class="ghost icon-btn" title="Zoom in (+)">+</button>
+              </div>
             </div>
-            <div class="canvas-wrap" id="canvas-wrap"><canvas id="pixel-canvas"></canvas></div>
             <div class="side">
-              <div class="side-panel layers">
-                <div class="panel-head"><span>Layers</span></div>
-                <div id="layer-list" class="layer-list"></div>
-                <label class="opacity">Opacity <input type="range" id="layer-opacity" min="0" max="100" value="100" /></label>
-                <div class="layer-actions">
-                  <button id="layer-add" title="New layer">+</button>
-                  <button id="layer-dup" title="Duplicate layer">⧉</button>
-                  <button id="layer-up" title="Move up">↑</button>
-                  <button id="layer-down" title="Move down">↓</button>
-                  <button id="layer-merge" title="Merge down">⤓</button>
-                  <button id="layer-del" title="Delete layer">✕</button>
+              <div class="side-panel color-panel">
+                <div class="panel-head"><span>Color</span></div>
+                <div class="color-row">
+                  <label class="color-swatch" title="Pick a color"><input type="color" id="color" value="#ffffff" /><span id="color-swatch"></span></label>
+                  <input id="color-hex" class="color-hex" spellcheck="false" maxlength="7" value="#ffffff" />
+                  <button id="palette-add" class="ghost" title="Add this color to the project palette">Add</button>
                 </div>
               </div>
               <div class="side-panel palette-panel">
-                <div class="panel-head"><span>Palette</span></div>
                 <div class="palette" id="palette"></div>
+              </div>
+              <div class="side-panel layers">
+                <div class="panel-head">
+                  <span>Layers</span>
+                  <span class="spacer"></span>
+                  <button id="layer-add" class="icon-btn ghost" title="New layer"><svg><use href="#i-plus" /></svg></button>
+                </div>
+                <div id="layer-list" class="layer-list"></div>
+                <div class="layer-foot">
+                  <label class="opacity" title="Layer opacity">Opacity <input type="range" id="layer-opacity" min="0" max="100" value="100" /><span id="layer-opacity-v">100%</span></label>
+                  <div class="layer-actions">
+                    <button id="layer-dup" class="icon-btn ghost" title="Duplicate layer"><svg><use href="#i-copy" /></svg></button>
+                    <button id="layer-up" class="icon-btn ghost" title="Move up"><svg><use href="#i-up" /></svg></button>
+                    <button id="layer-down" class="icon-btn ghost" title="Move down"><svg><use href="#i-down" /></svg></button>
+                    <button id="layer-merge" class="icon-btn ghost" title="Merge down"><svg><use href="#i-merge" /></svg></button>
+                    <button id="layer-del" class="icon-btn ghost" title="Delete layer"><svg><use href="#i-trash" /></svg></button>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
           <div class="timeline">
-            <div class="timeline-row">
-              <span class="row-label">Frames</span>
-              <button id="anim-play" class="icon-btn" title="Preview animation (Enter) - plays the selected tag">▶</button>
-              <div id="frame-list" class="frame-list"></div>
-              <div class="btn-group">
-                <button id="frame-add" title="New empty frame">+</button>
-                <button id="frame-dup" title="Duplicate frame">⧉</button>
-                <button id="frame-del" title="Delete frame">−</button>
-                <button id="frame-left" title="Move frame left">◀</button>
-                <button id="frame-right" title="Move frame right">▶</button>
-              </div>
-              <label class="fps" title="Default speed of frames without their own duration">FPS <input type="number" id="fps" min="1" max="60" value="8" /></label>
-              <label class="fps" title="How long the selected frame stays on screen (ms). Empty = use FPS">Frame <input type="number" id="frame-ms" min="0" max="10000" step="10" placeholder="auto" /> ms</label>
+            <div class="timeline-bar">
+              <button id="anim-play" class="icon-btn" title="Preview the animation (Enter) · plays the selected tag"><svg><use href="#i-play" /></svg></button>
+              <span class="tl-group">
+                <button id="frame-add" class="icon-btn ghost" title="New frame"><svg><use href="#i-plus" /></svg></button>
+                <button id="frame-dup" class="icon-btn ghost" title="Duplicate frame"><svg><use href="#i-copy" /></svg></button>
+                <button id="frame-del" class="icon-btn ghost" title="Delete frame"><svg><use href="#i-trash" /></svg></button>
+                <button id="frame-left" class="icon-btn ghost" title="Move frame left"><svg><use href="#i-left" /></svg></button>
+                <button id="frame-right" class="icon-btn ghost" title="Move frame right"><svg><use href="#i-right" /></svg></button>
+              </span>
+              <button id="tag-add" class="ghost" title="Shift+click frames to choose a range, then add a tag">Add tag</button>
+              <span class="spacer"></span>
+              <label class="num" title="Default speed of frames without their own duration">FPS <input type="number" id="fps" min="1" max="60" value="8" /></label>
+              <label class="num" title="How long the selected frame stays on screen. Empty = from FPS">Frame <input type="number" id="frame-ms" min="0" max="10000" step="10" placeholder="auto" /> ms</label>
             </div>
-            <div class="timeline-row">
-              <span class="row-label">Tags</span>
-              <div id="tag-list" class="tag-list"></div>
-              <button id="tag-add" title="Shift+click frames to choose a range, then add a tag">+ Tag</button>
+            <div class="frames-scroll" id="frames-scroll">
+              <div id="tag-list" class="tag-bars"></div>
+              <div id="frame-list" class="frame-list"></div>
             </div>
           </div>
         </section>
@@ -198,71 +190,71 @@
         <!-- MAP --------------------------------------------------------------------- -->
         <section id="tab-map" class="tab">
           <div class="optbar">
-            <div class="opt-group">
-              <select id="map-select" title="Map"></select>
-              <button id="map-new" title="New map">+ Map</button>
-              <button id="map-rename">Rename</button>
-              <button id="map-resize">Resize</button>
-              <button id="map-del" title="Delete map">Delete</button>
-            </div>
-            <div class="spacer"></div>
-            <div class="opt-group">
-              <label class="toggle"><input type="checkbox" id="map-grid" checked /><span>Grid</span></label>
-              <label class="toggle" title="Fade layers other than the active one"><input type="checkbox" id="map-dim" /><span>Dim others</span></label>
-            </div>
-            <div class="zoom">
-              <button id="map-zoom-out">−</button>
-              <span id="map-zoom">2x</span>
-              <button id="map-zoom-in">+</button>
-            </div>
+            <select id="map-select" title="Map"></select>
+            <button id="map-new" class="ghost" title="New map">New map</button>
+            <button id="map-rename" class="ghost">Rename</button>
+            <button id="map-resize" class="ghost">Resize</button>
+            <button id="map-del" class="ghost" title="Delete map">Delete</button>
           </div>
           <div class="editor-body">
-            <div class="toolstrip" id="map-tools">
-              <button data-tool="pen" class="active" title="Paint (B) - shift+drag in the tile palette for a multi-tile brush"><svg><use href="#i-pen" /></svg></button>
-              <button data-tool="erase" title="Erase (E) - right click also erases"><svg><use href="#i-eraser" /></svg></button>
-              <button data-tool="fill" title="Fill (G)"><svg><use href="#i-fill" /></svg></button>
-              <button data-tool="rect" title="Rectangle (U) - repeats the brush"><svg><use href="#i-rect" /></svg></button>
-              <button data-tool="picker" title="Pick tile (I) - Alt+click also picks"><svg><use href="#i-picker" /></svg></button>
-              <div class="tool-sep"></div>
-              <button data-tool="object" title="Objects (O) - click to place, drag to move, right click / Del to delete, arrows nudge"><svg><use href="#i-object" /></svg></button>
-            </div>
             <div class="canvas-wrap" id="map-wrap">
               <canvas id="map-canvas"></canvas>
               <div id="map-empty" class="map-empty">
                 <b>No map yet</b>
-                <span>1. Make a tileset: a sprite whose frames are tiles (Sheet → Import, or Grid Stamp → "add frame to").<br />
-                2. Press <b>+ Map</b>. Draw it in code with <code>map("level", 0, 0)</code>.</span>
+                <span>Make a tileset first: a sprite whose frames are the tiles.<br />Then press <b>New map</b> and draw it in code with <code>map("level", 0, 0)</code>.</span>
+              </div>
+              <div class="toolbox" id="map-tools">
+                <button data-tool="pen" class="active" title="Paint (B) · Shift+drag in the tile palette for a multi-tile brush"><svg><use href="#i-pen" /></svg></button>
+                <button data-tool="erase" title="Erase (E) · right click also erases"><svg><use href="#i-eraser" /></svg></button>
+                <button data-tool="fill" title="Fill (G)"><svg><use href="#i-fill" /></svg></button>
+                <button data-tool="rect" title="Rectangle (U)"><svg><use href="#i-rect" /></svg></button>
+                <button data-tool="picker" title="Pick tile (I) · Alt+click also picks"><svg><use href="#i-picker" /></svg></button>
+                <div class="tool-sep"></div>
+                <button data-tool="object" title="Objects (O) · click to place, drag to move, right click or Del to delete"><svg><use href="#i-object" /></svg></button>
+              </div>
+              <div class="viewbar">
+                <label class="toggle"><input type="checkbox" id="map-grid" checked /><span>Grid</span></label>
+                <label class="toggle" title="Fade the layers other than the active one"><input type="checkbox" id="map-dim" /><span>Dim others</span></label>
+                <span class="vb-sep"></span>
+                <button id="map-zoom-out" class="ghost icon-btn">−</button>
+                <span id="map-zoom" class="zoom-label">2x</span>
+                <button id="map-zoom-in" class="ghost icon-btn">+</button>
               </div>
             </div>
             <div class="side">
               <div class="side-panel tileset-panel">
-                <div class="panel-head"><span>Tileset</span></div>
+                <div class="panel-head"><span>Tiles</span></div>
                 <select id="map-tileset" class="tileset-select"></select>
                 <div class="tile-palette-wrap"><canvas id="tile-palette"></canvas></div>
-                <label class="toggle solid" title="Flag 0 - check it in code with msolid(map, x, y) or fget(sprite, tile)"><input type="checkbox" id="tile-solid" /><span>Solid (selected tiles)</span></label>
+                <label class="check solid" title="Flag 0 · check it in code with msolid(map, x, y) or fget(sprite, tile)"><input type="checkbox" id="tile-solid" /> Solid (selected tiles)</label>
               </div>
               <div class="side-panel objects-panel">
-                <div class="panel-head"><span>Objects</span><span id="obj-count" class="count"></span></div>
+                <div class="panel-head"><span>Object</span><span id="obj-count" class="count"></span></div>
                 <div class="obj-form">
                   <label>Type <input id="obj-type" value="enemy" spellcheck="false" /></label>
                   <label>Sprite <select id="obj-sprite"></select></label>
                   <label class="props">Props <textarea id="obj-props" spellcheck="false" placeholder="hp=10&#10;path=sine"></textarea></label>
-                  <div class="obj-actions"><span id="obj-pos" class="muted"></span><div class="spacer"></div><button id="obj-del" title="Delete selected object (Del)">Delete</button></div>
+                  <div class="obj-actions"><span id="obj-pos" class="muted"></span><div class="spacer"></div><button id="obj-del" class="ghost" title="Delete the selected object (Del)">Delete</button></div>
                 </div>
               </div>
               <div class="side-panel layers">
-                <div class="panel-head"><span>Map layers</span></div>
+                <div class="panel-head">
+                  <span>Layers</span>
+                  <span class="spacer"></span>
+                  <button id="map-layer-add" class="icon-btn ghost" title="New layer"><svg><use href="#i-plus" /></svg></button>
+                </div>
                 <div id="map-layer-list" class="layer-list"></div>
-                <div class="layer-actions map-layer-actions">
-                  <button id="map-layer-add" title="New layer">+</button>
-                  <button id="map-layer-up" title="Move up">↑</button>
-                  <button id="map-layer-down" title="Move down">↓</button>
-                  <button id="map-layer-del" title="Delete layer">✕</button>
+                <div class="layer-foot">
+                  <div class="layer-actions">
+                    <button id="map-layer-up" class="icon-btn ghost" title="Move up"><svg><use href="#i-up" /></svg></button>
+                    <button id="map-layer-down" class="icon-btn ghost" title="Move down"><svg><use href="#i-down" /></svg></button>
+                    <button id="map-layer-del" class="icon-btn ghost" title="Delete layer"><svg><use href="#i-trash" /></svg></button>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
-          <div id="map-info" class="map-info"></div>
+          <div id="map-info" class="map-info hidden"></div>
         </section>
 
         <!-- CODE -------------------------------------------------------------------- -->
@@ -271,38 +263,87 @@
           <div id="code-host" class="code-host"></div>
           <div class="console">
             <div class="console-head">
-              <span>Console</span>
+              <span class="console-title">Console</span>
               <span id="console-error" class="console-error"></span>
               <span class="spacer"></span>
-              <span class="hint"><kbd>Ctrl</kbd>+<kbd>Enter</kbd> restart with new code · <kbd>Ctrl</kbd>+<kbd>S</kbd> save · <kbd>Ctrl</kbd>+<kbd>F</kbd> find</span>
-              <button id="console-clear" class="icon-btn" title="Clear">⌫</button>
+              <span class="hint"><kbd>Ctrl</kbd> <kbd>Enter</kbd> restart · <kbd>Ctrl</kbd> <kbd>S</kbd> save · <kbd>Ctrl</kbd> <kbd>F</kbd> find</span>
+              <button id="console-clear" class="ghost" title="Clear the console">Clear</button>
             </div>
             <pre id="console-log" class="console-log"></pre>
           </div>
         </section>
       </main>
-      <footer id="status" class="status"></footer>
+
+      <!-- the game running inside the editor -->
+      <aside id="game-panel" class="game-panel hidden">
+        <div id="game-splitter" class="game-splitter" title="Drag to resize"></div>
+        <div class="panel-head">
+          <span>Game</span>
+          <span id="game-state" class="count"></span>
+          <span class="spacer"></span>
+          <button id="game-restart" class="icon-btn ghost" title="Restart with the latest code (Ctrl+Enter)"><svg><use href="#i-restart" /></svg></button>
+          <button id="game-window" class="ghost" title="Run the game in its own window instead">Open in window</button>
+          <button id="game-close" class="icon-btn ghost" title="Hide the game view"><svg><use href="#i-close" /></svg></button>
+        </div>
+        <div id="game-host" class="game-host">
+          <div class="game-empty">
+            <b>Press Play to run the game here</b>
+            <span>Sprite and map edits show up while it runs. Ctrl+Enter restarts it with your latest code.</span>
+          </div>
+        </div>
+      </aside>
+
+      <footer class="status">
+        <span id="status" class="status-msg"></span>
+        <span id="status-info" class="status-info"></span>
+      </footer>
     </div>
 
+    <!-- start screen ---------------------------------------------------------------------- -->
+    <div id="welcome" class="welcome hidden">
+      <div class="welcome-box">
+        <div class="welcome-side">
+          <div class="welcome-logo"><span class="brand-mark big"></span>Slate</div>
+          <p class="welcome-sub">도트를 찍으면 바로 게임이 되는 픽셀 게임 엔진</p>
+          <div class="welcome-actions">
+            <button id="w-new" class="primary">New project</button>
+            <button id="w-open">Open folder</button>
+          </div>
+          <div class="welcome-label">Recent</div>
+          <div id="w-recent" class="welcome-recent"></div>
+          <span class="spacer"></span>
+          <span id="w-version" class="muted small"></span>
+        </div>
+        <div class="welcome-main">
+          <div class="welcome-label">Start from a template</div>
+          <div id="w-templates" class="welcome-cards"></div>
+          <div class="welcome-label">Examples</div>
+          <div id="w-examples" class="welcome-cards"></div>
+        </div>
+        <button id="w-close" class="icon-btn ghost welcome-close" title="Close"><svg><use href="#i-close" /></svg></button>
+      </div>
+    </div>
+
+    <!-- Grid Stamp ------------------------------------------------------------------------- -->
     <div id="stamp-dialog" class="modal hidden">
       <div class="modal-box">
         <div class="modal-head">
-          <b>Grid Stamp</b>
-          <span class="muted">Snap an AI image onto a real pixel grid</span>
+          <h2>Grid Stamp</h2>
+          <span class="muted">Snap an image onto a real pixel grid</span>
           <div class="spacer"></div>
-          <button id="stamp-close">✕</button>
+          <button id="stamp-close" class="icon-btn ghost" title="Close"><svg><use href="#i-close" /></svg></button>
         </div>
         <div class="stamp-body">
           <div id="stamp-ai" class="stamp-ai hidden">
             <select id="ai-gen" title="Image generator plugin"></select>
-            <input id="ai-prompt" placeholder="Describe a sprite, e.g. a knight with a red cape" spellcheck="false" />
+            <input id="ai-prompt" placeholder="A knight with a red cape" spellcheck="false" />
             <span id="ai-opts" class="ai-opts"></span>
-            <button id="ai-go" class="accent">Generate</button>
+            <button id="ai-go" class="primary">Generate</button>
             <span id="ai-status" class="muted"></span>
           </div>
           <div class="stamp-views">
             <div class="stamp-view">
-              <div class="view-title">Source + detected grid <span class="muted">(wheel: zoom)</span></div>
+              <div class="view-title">Source and detected grid <span class="muted">(wheel: zoom)</span></div>
               <div class="stamp-src-wrap" id="stamp-src-wrap"><canvas id="stamp-src"></canvas></div>
             </div>
             <div class="stamp-view">
@@ -311,57 +352,53 @@
             </div>
           </div>
           <div class="stamp-controls">
-            <button id="stamp-file">Choose image…</button>
+            <button id="stamp-file">Choose image</button>
             <span class="muted">or drop / paste (Ctrl+V)</span>
             <label>Pitch <input type="range" id="stamp-pitch" min="0" max="32" step="0.1" value="0" /> <span id="stamp-pitch-v">auto</span></label>
             <label>Colors <input type="number" id="stamp-colors" min="0" max="64" value="16" /></label>
             <label>Max size <input type="number" id="stamp-max" min="0" max="512" value="0" title="0 = natural size" /></label>
             <label>Background
               <select id="stamp-bg">
-                <option value="auto">auto</option>
-                <option value="alpha">alpha</option>
-                <option value="none">keep</option>
+                <option value="auto">Auto</option>
+                <option value="alpha">Alpha</option>
+                <option value="none">Keep</option>
               </select>
             </label>
             <label class="check"><input type="checkbox" id="stamp-elastic" checked /> Elastic grid</label>
             <label class="check"><input type="checkbox" id="stamp-cleanup" checked /> Cleanup</label>
             <label title="Scenes: merges grain and tiny color islands">Scene cleanup
               <select id="stamp-despeckle">
-                <option value="auto">auto</option>
-                <option value="0">off</option>
-                <option value="3">normal</option>
-                <option value="6">strong</option>
+                <option value="auto">Auto</option>
+                <option value="0">Off</option>
+                <option value="3">Normal</option>
+                <option value="6">Strong</option>
               </select>
             </label>
-            <label title="Seamless square tile of this many pixels (0 = off). Stamps at the natural grid and hides seams.">Tile
-              <input type="number" id="stamp-tile" min="0" max="256" value="0" style="width:56px" />
-            </label>
-            <label title="Take a different piece of the texture (for tile variations)">Variant
-              <input type="number" id="stamp-variant" min="0" max="99" value="0" style="width:48px" />
-            </label>
-            <label title="Scenes: stamp on the image's own grid, then scale by a whole number and crop to this size (crisp but chunkier)">Fit to
-              <input id="stamp-cover" placeholder="e.g. 640x360" spellcheck="false" style="width:90px" />
-            </label>
+            <label title="Seamless square tile of this many pixels (0 = off)">Tile <input type="number" id="stamp-tile" min="0" max="256" value="0" /></label>
+            <label title="Take a different piece of the texture (tile variations)">Variant <input type="number" id="stamp-variant" min="0" max="99" value="0" /></label>
+            <label title="Scenes: stamp on the image's own grid, then scale and crop to this size">Fit to <input id="stamp-cover" placeholder="640x360" spellcheck="false" /></label>
             <div class="spacer"></div>
             <select id="stamp-target" title="Where the stamped pixels go">
-              <option value="">→ new sprite</option>
+              <option value="">New sprite</option>
             </select>
-            <input id="stamp-name" placeholder="sprite name" spellcheck="false" />
-            <button id="stamp-ok" class="accent">Stamp</button>
+            <input id="stamp-name" placeholder="Sprite name" spellcheck="false" />
+            <button id="stamp-ok" class="primary">Stamp</button>
           </div>
         </div>
       </div>
       <input type="file" id="stamp-input" accept="image/*" hidden />
     </div>
+
+    <!-- adjust colors ------------------------------------------------------------------------ -->
     <div id="adjust-dialog" class="modal hidden">
       <div class="modal-box small">
         <div class="modal-head">
-          <b>Adjust colors</b>
-          <span class="muted">Identical colors stay identical, so the palette stays clean</span>
+          <h2>Adjust colors</h2>
           <div class="spacer"></div>
-          <button id="adjust-close">✕</button>
+          <button id="adjust-close" class="icon-btn ghost" title="Close"><svg><use href="#i-close" /></svg></button>
         </div>
         <div class="adjust-body">
+          <p class="muted">Identical colors stay identical, so the palette stays clean.</p>
           <label>Hue <input type="range" id="adj-hue" min="-180" max="180" value="0" /><span></span></label>
           <label>Saturation <input type="range" id="adj-saturation" min="-100" max="100" value="0" /><span></span></label>
           <label>Lightness <input type="range" id="adj-lightness" min="-100" max="100" value="0" /><span></span></label>
@@ -376,58 +413,113 @@
           </label>
         </div>
         <div class="modal-foot">
-          <button id="adjust-reset">Reset</button>
+          <button id="adjust-reset" class="ghost">Reset</button>
           <div class="spacer"></div>
           <button id="adjust-cancel">Cancel</button>
-          <button id="adjust-ok" class="accent">Apply</button>
+          <button id="adjust-ok" class="primary">Apply</button>
         </div>
       </div>
     </div>
     <input type="file" id="sheet-input" accept="image/*" hidden />
+
+    <!-- plugins ------------------------------------------------------------------------------- -->
     <div id="plugins-dialog" class="modal hidden">
       <div class="modal-box small">
         <div class="modal-head">
-          <b>Plugins</b>
-          <span class="muted">Optional extensions. Each runs sandboxed and can only reach the hosts it declares.</span>
+          <h2>Plugins</h2>
           <div class="spacer"></div>
-          <button id="plugins-close">✕</button>
+          <button id="plugins-close" class="icon-btn ghost" title="Close"><svg><use href="#i-close" /></svg></button>
         </div>
+        <p class="modal-intro muted">Optional extensions. Each runs sandboxed and can only reach the hosts it declares.</p>
         <div id="plugin-list" class="plugin-list"></div>
         <div class="modal-foot">
-          <button id="plugin-install">Install from folder…</button>
-          <span id="plugin-folder" class="muted"></span>
+          <button id="plugin-install">Install from folder</button>
+          <span id="plugin-folder" class="muted small"></span>
         </div>
       </div>
     </div>
+
+    <!-- sound effect maker ------------------------------------------------------------------- -->
     <div id="sfx-dialog" class="modal hidden">
-      <div class="modal-box small">
+      <div class="modal-box audio-box">
         <div class="modal-head">
-          <b>Sound effect</b>
-          <span class="muted">Pick a preset, tweak, then save it to sounds/ and play it with sfx("name")</span>
+          <h2>Sound effect</h2>
           <div class="spacer"></div>
-          <button id="sfx-close">✕</button>
+          <button id="sfx-close" class="icon-btn ghost" title="Close"><svg><use href="#i-close" /></svg></button>
         </div>
-        <div class="sfx-body">
-          <div class="sfx-presets" id="sfx-presets"></div>
-          <div class="sfx-row">
-            <label>Wave <select id="sfx-wave"><option value="0">Square</option><option value="1">Saw</option><option value="2">Sine</option><option value="3">Noise</option></select></label>
-            <label>Volume <input type="range" id="sfx-volume" min="0" max="1" step="0.01" /></label>
-            <button id="sfx-mutate" title="Small random changes">Mutate</button>
-            <button id="sfx-random" title="Anything goes">Random</button>
-            <div class="spacer"></div>
-            <canvas id="sfx-wavecanvas" width="220" height="40"></canvas>
+        <div class="audio-body">
+          <div class="audio-left">
+            <div class="section-label">Start from</div>
+            <div class="preset-list" id="sfx-presets"></div>
+            <div class="preset-tools">
+              <button id="sfx-mutate" title="A small variation of this sound">Variation</button>
+              <button id="sfx-random" title="Anything goes">Random</button>
+            </div>
           </div>
-          <div class="sfx-sliders" id="sfx-sliders"></div>
+          <div class="audio-main">
+            <div class="wave-view">
+              <canvas id="sfx-wavecanvas" width="640" height="120"></canvas>
+              <div class="wave-foot">
+                <button id="sfx-play" class="primary play-btn" title="Play (Space)"><svg><use href="#i-play" /></svg>Play</button>
+                <span id="sfx-len" class="muted"></span>
+              </div>
+            </div>
+            <div class="section-label">Sound</div>
+            <div class="segmented" id="sfx-wave"></div>
+            <div class="slider-grid" id="sfx-basic"></div>
+            <button id="sfx-more" class="disclosure"><svg><use href="#i-chevron" /></svg>More settings</button>
+            <div class="slider-groups hidden" id="sfx-advanced"></div>
+          </div>
         </div>
         <div class="modal-foot">
-          <button id="sfx-play" class="primary" title="Space">▶ Play</button>
-          <span class="muted" id="sfx-len"></span>
+          <label class="foot-field">Name <input id="sfx-name" spellcheck="false" placeholder="jump" /></label>
+          <span class="muted small" id="sfx-code"></span>
           <div class="spacer"></div>
-          <input id="sfx-name" spellcheck="false" placeholder="name" style="width: 140px" />
-          <button id="sfx-save" class="primary">Save to sounds/</button>
+          <button id="sfx-cancel">Close</button>
+          <button id="sfx-save" class="primary">Save to sounds</button>
         </div>
       </div>
     </div>
+
+    <!-- music maker ------------------------------------------------------------------------------ -->
+    <div id="music-dialog" class="modal hidden">
+      <div class="modal-box audio-box">
+        <div class="modal-head">
+          <h2>Music</h2>
+          <div class="spacer"></div>
+          <button id="music-close" class="icon-btn ghost" title="Close"><svg><use href="#i-close" /></svg></button>
+        </div>
+        <div class="audio-body">
+          <div class="audio-left">
+            <div class="section-label">Style</div>
+            <div class="preset-list" id="music-styles"></div>
+          </div>
+          <div class="audio-main">
+            <div class="wave-view">
+              <canvas id="music-canvas" width="640" height="120"></canvas>
+              <div class="wave-foot">
+                <button id="music-play" class="primary play-btn"><svg><use href="#i-play" /></svg>Play</button>
+                <span id="music-len" class="muted"></span>
+                <span class="spacer"></span>
+                <button id="music-new" title="Same style, a new melody and groove">New melody</button>
+              </div>
+            </div>
+            <div class="section-label">Song</div>
+            <div class="slider-grid" id="music-song"></div>
+            <div class="section-label">Instruments</div>
+            <div class="instrument-list" id="music-parts"></div>
+          </div>
+        </div>
+        <div class="modal-foot">
+          <label class="foot-field">Name <input id="music-name" spellcheck="false" placeholder="theme" /></label>
+          <span class="muted small" id="music-code"></span>
+          <div class="spacer"></div>
+          <button id="music-cancel">Close</button>
+          <button id="music-save" class="primary">Save to music</button>
+        </div>
+      </div>
+    </div>
+
     <input type="file" id="open-input" accept=".slate,application/json" hidden />
     <script type="module" src="/src/main.ts"></script>
   </body>

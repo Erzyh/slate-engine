@@ -13,6 +13,7 @@ export interface ExplorerHooks {
   newSprite(folder: string): void;
   newMap(): void;
   newSound(folder: string): void;
+  newMusic(folder: string): void;
   playAudio(path: string): void;
   newFolder(parent: string): void;
   importFiles(folder: string): void;
@@ -28,7 +29,7 @@ export interface Selection {
   map?: string | null;
 }
 
-const ICON: Record<string, string> = { scripts: "{}", sprites: "▦", maps: "▤", music: "♫", sounds: "♪" };
+const CARET = '<span class="caret"><svg viewBox="0 0 16 16"><path d="M6 4l4 4-4 4" /></svg></span>';
 
 function thumb(img: ImageData) {
   const c = document.createElement("canvas");
@@ -86,9 +87,10 @@ export class Explorer {
     if (top === "scripts" || !folder) items.push(["New script", () => h.newScript(top === "scripts" ? folder : "scripts")]);
     if (top === "sprites" || !folder) items.push(["New sprite", () => h.newSprite(top === "sprites" ? folder : "sprites")]);
     if (top === "maps" || !folder) items.push(["New map", () => h.newMap()]);
-    if (top === "sounds" || !folder) items.push(["New sound effect…", () => h.newSound(top === "sounds" ? folder : "sounds")]);
+    if (top === "sounds" || !folder) items.push(["New sound effect", () => h.newSound(top === "sounds" ? folder : "sounds")]);
+    if (top === "music" || !folder) items.push(["New music", () => h.newMusic(top === "music" ? folder : "music")]);
     if (folder) items.push(["New folder", () => h.newFolder(folder)]);
-    items.push(null, ["Import files…", () => h.importFiles(folder || "")]);
+    items.push(null, ["Import files", () => h.importFiles(folder || "")]);
     if (folder.includes("/")) items.push(null, ["Rename folder", () => h.rename(folder)], ["Delete folder", () => h.removeFolder(folder)]);
     return items;
   }
@@ -114,12 +116,11 @@ export class Explorer {
     const addFolder = (dir: string, depth: number) => {
       const open = !this.collapsed.has(dir);
       const row = document.createElement("div");
-      row.className = "tree-row folder";
-      row.style.paddingLeft = `${6 + depth * 12}px`;
-      const top = dir.split("/")[0];
+      row.className = "tree-row folder" + (open ? " open" : "");
+      row.style.paddingLeft = `${4 + depth * 14}px`;
       const { subdirs, here } = children(dir);
       const n = files.filter((f) => f.startsWith(dir + "/")).length;
-      row.innerHTML = `<span class="caret">${open ? "▾" : "▸"}</span><span class="ico">${depth === 0 ? ICON[top] ?? "▪" : "▪"}</span><span class="name"></span><span class="count"></span>`;
+      row.innerHTML = `${CARET}<span class="name"></span><span class="count"></span>`;
       row.querySelector(".name")!.textContent = depth === 0 ? dir : dir.slice(dir.lastIndexOf("/") + 1);
       row.querySelector(".count")!.textContent = n ? String(n) : "";
       row.onclick = () => {
@@ -141,7 +142,8 @@ export class Explorer {
       const top = path.split("/")[0];
       const name = baseName(path);
       const row = document.createElement("div");
-      row.style.paddingLeft = `${6 + depth * 12}px`;
+      // files line up with their folder's name (past the caret)
+      row.style.paddingLeft = `${4 + depth * 14 + 6}px`;
       row.title = path;
       let active = false;
       let open = () => {};
@@ -149,20 +151,20 @@ export class Explorer {
         const s = p.get(name);
         row.className = "tree-row sprite-item";
         if (s) row.appendChild(thumb(s.flat(0)));
-        const meta = document.createElement("div");
-        meta.className = "meta";
-        meta.innerHTML = `<div class="name"></div><div class="size"></div>`;
-        meta.querySelector(".name")!.textContent = name;
-        if (s) meta.querySelector(".size")!.textContent = `${s.w}×${s.h}${s.frameCount > 1 ? ` · ${s.frameCount}f` : ""}${s.tags.length ? ` · ${s.tags.map((t) => t.name).join(", ")}` : ""}`;
-        row.appendChild(meta);
+        const nameEl = Object.assign(document.createElement("span"), { className: "name", textContent: name });
+        const size = Object.assign(document.createElement("span"), { className: "size" });
+        if (s) {
+          size.textContent = `${s.w}×${s.h}`;
+          row.title = `${path} · ${s.w}×${s.h}${s.frameCount > 1 ? ` · ${s.frameCount} frames` : ""}${s.tags.length ? ` · ${s.tags.map((t) => t.name).join(", ")}` : ""}`;
+        }
+        row.append(nameEl, size);
         active = sel.sprite === name;
         open = () => this.hooks.openSprite(name);
       } else {
         row.className = "tree-row file";
-        const ico = top === "scripts" ? (path === main ? "▶" : "·") : top === "maps" ? "▤" : top === "music" ? "♫" : "♪";
-        row.innerHTML = `<span class="ico"></span><span class="name"></span><span class="size"></span>`;
-        row.querySelector(".ico")!.textContent = ico;
+        row.innerHTML = `<span class="name"></span><span class="size"></span>`;
         row.querySelector(".name")!.textContent = top === "scripts" ? path.slice(path.lastIndexOf("/") + 1) : name;
+        if (top === "scripts" && path === main) row.querySelector(".size")!.outerHTML = '<span class="badge" title="Runs first">main</span>';
         if (top === "maps") {
           const m = p.maps.find((x) => x.name === name);
           if (m) row.querySelector(".size")!.textContent = `${m.w}×${m.h}`;

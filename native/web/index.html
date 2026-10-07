@@ -23,6 +23,6 @@
     <script>var register_plugin;</script>
     <script src="mq_js_bundle.js"></script>
     <script src="slate.js"></script>
-    <script>slateRun();</script>
+    <script>slateRun({ embed: new URLSearchParams(location.search).has("embed") });</script>
   </body>
 </html>

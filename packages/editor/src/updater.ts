@@ -3,6 +3,7 @@
 // to install it; the installer runs in the background and Slate restarts on the new version.
 
 import { invoke } from "@tauri-apps/api/core";
+import { confirmBox } from "./modal.ts";
 import { isTauri } from "./native.ts";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -23,7 +24,7 @@ function banner(html: string, actions: [string, () => void, boolean?][] = []) {
   for (const [label, fn, primary] of actions) {
     const b = document.createElement("button");
     b.textContent = label;
-    if (primary) b.className = "accent";
+    if (primary) b.className = "primary";
     b.onclick = fn;
     el.appendChild(b);
   }
@@ -59,7 +60,7 @@ export async function checkForUpdates(manual = false) {
 
 async function install(update: import("@tauri-apps/plugin-updater").Update) {
   if (hooks.dirty()) {
-    const save = confirm("Save the project before updating?\n\nOK = save, then update.  Cancel = update without saving.");
+    const save = await confirmBox("Save before updating?", "Slate restarts after the update.", { ok: "Save and update", cancel: "Don't save" });
     if (save && !(await hooks.save())) return;
   }
   let total = 0, got = 0;

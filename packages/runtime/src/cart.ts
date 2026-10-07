@@ -72,6 +72,10 @@ export interface Cartridge {
   lang?: "luau" | "js";
   /** music tracks: name -> data URL (OGG Vorbis or WAV), played with music(name) */
   music?: Record<string, string>;
+  /** start in fullscreen (F11 / Alt+Enter toggle it) */
+  fullscreen?: boolean;
+  /** the project's own palette colors (editor only) */
+  palette?: string[];
 }
 
 export function emptyCartridge(name = "untitled"): Cartridge {
