@@ -39,6 +39,8 @@ const env = {
     `-C link-arg=-L${sysroot}/lib/wasm32-wasip1/eh`,
     "-C link-arg=-lc++abi",
     "-C link-arg=-lunwind",
+    // the functions slate.js and mq_js_bundle.js provide (newer Rust no longer allows them by default)
+    "-C link-arg=--allow-undefined",
     // slate.js runs the constructors and then main itself (_start would run the destructors right after)
     "-C link-arg=--export=__wasm_call_ctors",
   ].join(" "),
