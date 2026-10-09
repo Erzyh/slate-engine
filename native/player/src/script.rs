@@ -564,6 +564,10 @@ fn register(lua: &Lua, eng: &Shared) -> LuaResult<()> {
         None => Ok(Value::Nil),
     });
     func!("__debug_boxes", |e, _l, (): ()| Ok(e.debug_boxes));
+    func!("__screen", |e, l, name: String| match e.screens.get(&name) {
+        Some(v) => l.to_value(v),
+        None => Ok(Value::Nil),
+    });
     func!("__particle_preset", |e, l, name: String| match e.particles.get(&name) {
         Some(v) => l.to_value(v),
         None => Ok(Value::Nil),

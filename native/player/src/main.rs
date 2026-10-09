@@ -155,6 +155,7 @@ impl Game {
         };
         g.eng.borrow_mut().playtest = c.playtest.clone();
         g.eng.borrow_mut().particles = c.particles.clone();
+        g.eng.borrow_mut().screens = c.screens.clone();
         g.restart(script::Sources::from_cart(c), c.lang.as_deref());
         g
     }
@@ -192,6 +193,7 @@ impl Game {
         self.eng.borrow_mut().set_maps(&c.maps);
         self.eng.borrow_mut().playtest = c.playtest.clone();
         self.eng.borrow_mut().particles = c.particles.clone();
+        self.eng.borrow_mut().screens = c.screens.clone();
         self.eng.borrow_mut().mixer.music_src = decode_music(c);
         self.eng.borrow_mut().mixer.sound_src = decode_sounds(c);
         let src = script::Sources::from_cart(c);

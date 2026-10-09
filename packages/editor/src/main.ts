@@ -5,7 +5,7 @@ import { example, template } from "./examples.ts";
 import { Explorer } from "./explorer.ts";
 import { fingerprint, openFolderPath, pickFolder, type ProjectFolder } from "./folder.ts";
 import { pickCartFile, saveBinary, saveCart, saveText } from "./io.ts";
-import { exportWeb, exportWindows, isTauri, nativeRunning, playerOutput, runNative, stopNative, updateNative } from "./native.ts";
+import { exportAndroid, exportNative, exportTargets, exportWeb, exportWindows, isTauri, nativeRunning, playerOutput, runNative, stopNative, updateNative } from "./native.ts";
 import { MapEditor } from "./map-editor.ts";
 import { canvasSize, resample } from "./ops.ts";
 import { PixelPanels } from "./panels.ts";
@@ -25,6 +25,7 @@ import { desktopFeel } from "./desktop-feel.ts";
 import { tooltips } from "./tooltip.ts";
 import { readAseprite } from "./aseprite.ts";
 import { ParticleDialog } from "./particle-dialog.ts";
+import { UiEditor } from "./ui-editor.ts";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const LAST_FOLDER = "slate:lastFolder";
@@ -69,6 +70,11 @@ musicDialog.onSave = (dir, name, wav) => {
   setStatus(`Saved ${dir}/${name}.wav · play it in code with music("${name}")`);
 };
 let preview: HTMLAudioElement | null = null;
+const uiEditor = new UiEditor({
+  changed: () => markFile("slate.json"),
+  status: (msg, error) => setStatus(msg, error),
+  cart: () => project.toCart(),
+});
 const particleDialog = new ParticleDialog({
   presets: () => (project.cart.particles ??= {}),
   changed: () => {
@@ -85,6 +91,10 @@ const mapEditor = new MapEditor({
   flagsChanged: (s) => {
     markFile(spritePath(s.name));
     scheduleNativeSync();
+  },
+  spriteAdded: (name) => {
+    markFile(spritePath(name));
+    renderExplorer();
   },
   templatesChanged: () => {
     markFile("slate.json");
@@ -232,6 +242,7 @@ async function removeFolder(dir: string) {
   project.deleteFolder(dir);
   selectSprite(project.get(currentSprite ?? "") ? currentSprite : project.sprites[0]?.name ?? null);
   mapEditor.setProject(project);
+  uiEditor.setProject(project);
   code.sync((p) => p in project.scripts);
   markFile(dir + "/");
   scheduleNativeSync();
@@ -314,6 +325,7 @@ async function openProject(p: Project, where: ProjectFolder | null) {
   currentSprite = p.sprites[0]?.name ?? null;
   selectSprite(currentSprite);
   mapEditor.setProject(p);
+  uiEditor.setProject(p);
   const main = p.cart.main ?? "";
   if (main in p.scripts) code.show(main, p.scripts[main]);
   renderExplorer();
@@ -418,9 +430,23 @@ async function importCart() {
   if (cart) await openCart(cart);
 }
 
-async function exportGame(target: "windows" | "web" | "slate") {
+/** systems this build exports native games for (filled at start) */
+let targets: string[] = ["windows"];
+void exportTargets().then((t) => (targets = t.length || !isTauri ? t : ["windows"]));
+
+async function exportGame(target: "windows" | "macos" | "linux" | "android" | "web" | "slate") {
   try {
-    if (target === "windows") {
+    if (target === "android") {
+      if (!isTauri) return setStatus("Android export works in the Slate desktop app", true);
+      const r = await exportAndroid(project.toCart());
+      if (r) setStatus(`Exported ${r.path} (${(r.bytes / 1024 / 1024).toFixed(1)} MB) · copy it to a phone and open it to install · signed with the key in ~/.slate (keep a copy for updates)`);
+      return;
+    }
+    if (target === "macos" || target === "linux") {
+      if (!isTauri) return setStatus("Native export works in the Slate desktop app", true);
+      const r = await exportNative(target, project.toCart());
+      if (r) setStatus(`Exported ${r.path} (${(r.bytes / 1024 / 1024).toFixed(1)} MB) · ${target === "macos" ? "unzip it: the .app is the game (first launch: right click → Open)" : "unzip it and run the program inside"}`);
+    } else if (target === "windows") {
       if (!isTauri) return setStatus("Windows export works in the Slate desktop app", true);
       const r = await exportWindows(project.toCart());
       if (r) setStatus(`Exported ${r.path} (${(r.bytes / 1024 / 1024).toFixed(1)} MB) · a standalone Windows game`);
@@ -513,6 +539,7 @@ async function importFile(f: File, dir: string) {
       if (!m.layers || !m.tileset) throw new Error("not a tile map");
       project.maps.push({ ...m, name });
       mapEditor.setProject(project);
+      uiEditor.setProject(project);
       markFile(mapPath(name));
     } catch (err) {
       setStatus(`${f.name}: ${err}`, true);
@@ -818,7 +845,10 @@ new MenuBar($("menubar"), [
       { label: "Import cartridge (.slate)", action: () => void importCart() },
       "-",
       { header: "Export" },
-      { label: "Windows game (.exe)", action: () => void exportGame("windows") },
+      { label: "Windows game (.exe)", action: () => void exportGame("windows"), disabled: !targets.includes("windows") },
+      { label: "macOS game (.zip)", action: () => void exportGame("macos"), disabled: !targets.includes("macos") },
+      { label: "Linux game (.zip)", action: () => void exportGame("linux"), disabled: !targets.includes("linux") },
+      { label: "Android app (.apk)", action: () => void exportGame("android") },
       { label: "Web game for itch.io (.zip)", action: () => void exportGame("web") },
       { label: "Cartridge (.slate)", action: () => void exportGame("slate") },
       "-",
@@ -895,6 +925,7 @@ new MenuBar($("menubar"), [
       { label: "Pixel", key: "1", action: () => showTab("pixel"), checked: tabIs("pixel") },
       { label: "Map", key: "2", action: () => showTab("map"), checked: tabIs("map") },
       { label: "Code", key: "3", action: () => showTab("code"), checked: tabIs("code") },
+      { label: "UI", key: "4", action: () => showTab("ui"), checked: tabIs("ui") },
       "-",
       { label: "Game view", action: () => gameView.show(!gameView.visible), checked: gameView.visible },
       { label: "Play in the Game view", action: () => localStorage.setItem(RUN_IN, runIn() === "view" ? "window" : "view"), checked: runIn() === "view" },
@@ -953,6 +984,7 @@ const welcome = new Welcome({
 function showTab(tab: string) {
   for (const b of document.querySelectorAll<HTMLElement>(".tabs button")) b.classList.toggle("active", b.dataset.tab === tab);
   for (const t of document.querySelectorAll(".tab")) t.classList.toggle("active", t.id === `tab-${tab}`);
+  uiEditor.setVisible(tab === "ui");
   if (tab === "pixel") editor.render();
   if (tab === "map") mapEditor.refresh();
   if (tab === "code" && !code.active) {
@@ -988,7 +1020,11 @@ window.addEventListener("keydown", (e) => {
   if (typing()) return;
   if (panels.dialogOpen) { panels.handleKey(e); return; }
   if (e.code === "Space") { e.preventDefault(); void togglePlay(); return; }
-  if (!mod && (e.key === "1" || e.key === "2" || e.key === "3")) { showTab(["pixel", "map", "code"][Number(e.key) - 1]); return; }
+  if (!mod && (e.key === "1" || e.key === "2" || e.key === "3" || e.key === "4")) { showTab(["pixel", "map", "code", "ui"][Number(e.key) - 1]); return; }
+  if (tabIs("ui")) {
+    if (uiEditor.handleKey(e)) e.preventDefault();
+    return;
+  }
   if (tabIs("map")) {
     if (mapEditor.handleKey(e)) e.preventDefault();
     return;

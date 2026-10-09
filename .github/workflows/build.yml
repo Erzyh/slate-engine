@@ -1,0 +1,131 @@
+# Builds Slate for macOS and Linux (the Windows build is made locally with tools/release.mjs).
+#   players: the native game player for each system (exported games are this player + game.slate)
+#   web:     the WebAssembly player (the editor's Game view and web exports)
+#   desktop: the editor for macOS (.dmg) and Linux (.AppImage / .deb), each carrying all three
+#            players so any of them can export Windows, macOS and Linux games
+# Runs by hand (Actions → build → Run workflow) and for version tags, where it adds the files to
+# the GitHub release of that tag.
+name: build
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  players:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest, name: windows }
+          - { os: macos-14, name: macos }
+          - { os: ubuntu-22.04, name: linux }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Linux libraries
+        if: matrix.name == 'linux'
+        run: sudo apt-get update && sudo apt-get install -y libx11-dev libxi-dev libgl1-mesa-dev libasound2-dev libudev-dev
+      - name: Build (macOS, Apple silicon + Intel in one binary)
+        if: matrix.name == 'macos'
+        run: |
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin
+          cargo build --release --manifest-path native/Cargo.toml -p slate-player --target aarch64-apple-darwin
+          cargo build --release --manifest-path native/Cargo.toml -p slate-player --target x86_64-apple-darwin
+          mkdir -p out
+          lipo -create -output out/slate-player native/target/aarch64-apple-darwin/release/slate-player native/target/x86_64-apple-darwin/release/slate-player
+          codesign --force --sign - out/slate-player
+      - name: Build
+        if: matrix.name != 'macos'
+        shell: bash
+        run: |
+          cargo build --release --manifest-path native/Cargo.toml -p slate-player
+          mkdir -p out
+          cp native/target/release/slate-player$([ "${{ matrix.name }}" = windows ] && echo .exe) out/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: player-${{ matrix.name }}
+          path: out/
+
+  web:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: wasi-sdk
+        run: |
+          mkdir -p ~/.slate-tools
+          curl -sSL https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-34/wasi-sdk-34.0-x86_64-linux.tar.gz | tar -xz -C ~/.slate-tools
+      - run: node tools/build-web.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-player
+          path: native/target/wasm32-wasip1/release/slate-player.wasm
+
+  desktop:
+    needs: [players, web]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-14, name: macos, bundles: "dmg,app", target: universal-apple-darwin }
+          - { os: ubuntu-22.04, name: linux, bundles: "appimage,deb", target: "" }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.name == 'macos' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+      - name: Linux libraries
+        if: matrix.name == 'linux'
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Players and web player in place
+        shell: bash
+        run: |
+          mkdir -p native/target/wasm32-wasip1/release
+          cp artifacts/web-player/slate-player.wasm native/target/wasm32-wasip1/release/
+          chmod +x artifacts/player-macos/slate-player artifacts/player-linux/slate-player
+          echo "SLATE_PLAYER_WINDOWS=$PWD/artifacts/player-windows/slate-player.exe" >> $GITHUB_ENV
+          echo "SLATE_PLAYER_MACOS=$PWD/artifacts/player-macos/slate-player" >> $GITHUB_ENV
+          echo "SLATE_PLAYER_LINUX=$PWD/artifacts/player-linux/slate-player" >> $GITHUB_ENV
+      - run: npm ci
+      - name: Build the editor app
+        shell: bash
+        run: |
+          # the updater files are signed with a key that stays off GitHub; macOS / Linux update by hand for now
+          npx tauri build --bundles ${{ matrix.bundles }} ${{ matrix.target && format('--target {0}', matrix.target) || '' }} \
+            --config '{"bundle":{"createUpdaterArtifacts":false}}'
+        working-directory: packages/desktop
+      - name: Collect
+        shell: bash
+        run: |
+          mkdir -p dist-${{ matrix.name }}
+          find packages/desktop/src-tauri/target -path '*/bundle/*' \( -name '*.dmg' -o -name '*.AppImage' -o -name '*.deb' \) -exec cp {} dist-${{ matrix.name }}/ \;
+          ls -la dist-${{ matrix.name }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: slate-${{ matrix.name }}
+          path: dist-${{ matrix.name }}/
+      - name: Add to the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${GITHUB_REF_NAME}" dist-${{ matrix.name }}/* --clobber

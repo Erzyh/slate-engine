@@ -29,6 +29,35 @@ export function nativeRunning() {
 }
 
 /** Save dialog + write a standalone .exe. Returns the path, or null if cancelled. */
+/** Export a macOS (.app in a .zip) or Linux (.zip) game; null when cancelled. */
+export async function exportNative(platform: "macos" | "linux", cart: Cartridge) {
+  const { save } = await import("@tauri-apps/plugin-dialog");
+  const label = platform === "macos" ? "macOS game" : "Linux game";
+  const path = await save({ defaultPath: `${cart.name}-${platform === "macos" ? "mac" : "linux"}.zip`, filters: [{ name: label, extensions: ["zip"] }] });
+  if (!path) return null;
+  const bytes = await invoke<number>(platform === "macos" ? "export_macos" : "export_linux", { json: JSON.stringify(cart), name: cart.title ?? cart.name, path });
+  return { path, bytes };
+}
+
+/** Export a signed Android app (.apk); null when cancelled. */
+export async function exportAndroid(cart: Cartridge) {
+  const { save } = await import("@tauri-apps/plugin-dialog");
+  const path = await save({ defaultPath: `${cart.name}.apk`, filters: [{ name: "Android app", extensions: ["apk"] }] });
+  if (!path) return null;
+  const bytes = await invoke<number>("export_android", { json: JSON.stringify(cart), name: cart.name, title: cart.title ?? cart.name, path });
+  return { path, bytes };
+}
+
+/** The systems this build can export native games for. */
+export async function exportTargets(): Promise<string[]> {
+  if (!isTauri) return [];
+  try {
+    return await invoke<string[]>("export_targets");
+  } catch {
+    return ["windows"];
+  }
+}
+
 export async function exportWindows(cart: Cartridge) {
   const { save } = await import("@tauri-apps/plugin-dialog");
   const path = await save({ defaultPath: `${cart.name}.exe`, filters: [{ name: "Windows game", extensions: ["exe"] }] });

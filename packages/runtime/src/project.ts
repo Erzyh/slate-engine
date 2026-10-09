@@ -29,6 +29,8 @@ export interface ProjectSettings {
   particles?: Cartridge["particles"];
   /** object templates */
   templates?: Cartridge["templates"];
+  /** UI screens */
+  screens?: Cartridge["screens"];
 }
 
 /** Settings stored next to a sprite's PNG (sprites/NAME.json). */
@@ -103,6 +105,7 @@ export function packProject(files: Map<string, Uint8Array>): Cartridge {
   if (settings.palette?.length) cart.palette = settings.palette;
   if (settings.particles && Object.keys(settings.particles).length) cart.particles = settings.particles;
   if (settings.templates && Object.keys(settings.templates).length) cart.templates = settings.templates;
+  if (settings.screens && Object.keys(settings.screens).length) cart.screens = settings.screens;
   const folderOf = (kind: string, name: string, path: string) => {
     const dir = path.slice(0, path.lastIndexOf("/"));
     if (dir !== kind) cart.folders![`${kind}:${name}`] = dir;

@@ -1,6 +1,6 @@
 [package]
 name = "slate"
-version = "0.2.0"
+version = "0.3.0"
 description = "Slate - a pixel game studio"
 edition = "2021"
 
@@ -17,6 +17,10 @@ ureq = "2"
 base64 = "0.22"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
+miniz_oxide = "0.8"
+sha2 = "0.10"
+ring = "0.17"
+rcgen = { version = "0.13", default-features = false, features = ["ring", "pem"] }
 
 [profile.release]
 opt-level = "s"

@@ -30,6 +30,9 @@ end
 | 길찾기 | `Path.find` `Path.toward` `Path.chase` `Path.dist` (아래) |
 | 화면 효과 | `Fx.flash` `Fx.fade` `Fx.freeze` `Fx.tint`, 셰이더 `Fx.effect` `Fx.shockwave` `Fx.glitch` `Fx.shader` (아래) |
 | 글자 효과 | `Text.draw(s, x, y, c, {wave, shake, rainbow, typing...})`, 글 안에 `{wave}...{/}` (아래) |
+| 화면 | `UI.screen(name)`: UI 탭에서 만든 화면을 그린다, `UI.settings`, `UI.slots` (아래) |
+| 레벨 | `Level.start` `Level.go(map, spawn)`, 맵 오브젝트의 행동 `Actors.update` / `Actors.draw` (아래) |
+| 저장 슬롯 | `Save.use(n)` `Save.get` `Save.set` `Save.label` `Save.info` `Save.clear` (아래) |
 | 테스트 | `playtest()` → `{map, x, y}`: 에디터의 "Play from here"로 실행했을 때만 값이 있다 (아래) |
 | 오브젝트 | `objects(map, type?)` → `{id, type, sprite, x, y, props, ...props}` (x, y = 아래 가운데, 맵 픽셀) |
 | 입력 | `btn(action)` `btnp(action)` `axis("x")` `bind(action, keys)` `pad()` (아래), `key(name)` `keyp(name)` `mouse.x/.y/.down/.pressed/.released/.wheel` `hit(x, y, w, h)` |
@@ -139,6 +142,72 @@ UI.toast("저장했습니다")                -- 잠깐 뜨는 알림, UI.draw()
 
 - 일시정지 중에는 `Timer`, `Tween`, 카메라 흔들림, 대화가 멈춘다. 문구는 바꿀 수 있다 (`UI.pause.title = "일시정지"`, `UI.pause.menu.items[1].label = "계속하기"`).
 - 템플릿 3종에는 일시정지 화면이 이미 들어 있다.
+
+```lua
+-- 에디터 UI 탭에서 만든 화면
+function draw()
+  ...
+  Cam.reset()
+  local clicked = UI.screen("hud")      -- 버튼이 눌린 프레임에 그 버튼의 id를 돌려준다
+end
+
+-- 설정 화면 (음악, 효과음, 전체 화면; 다음 실행에도 유지)
+UI.settings.show()
+if UI.settings.update() then return end   -- 열려 있는 동안 update에서
+UI.settings.draw()                         -- draw 마지막에
+
+-- 저장 슬롯 화면
+UI.slots.show({ title = "LOAD", allowEmpty = false, onPick = function(n, empty) ... end })
+if UI.slots.update() then return end
+UI.slots.draw()
+```
+
+- 화면 속 텍스트는 게임 값을 보여 준다: `{score}`, `{G.coins}` (전역 변수나 그 필드).
+- `UI.settings`나 일시정지 화면에서 바꾼 설정은 저장되어 다음 실행 때 적용된다.
+
+### 저장 슬롯 (`Save`)
+
+```lua
+Save.use(2)                          -- 쓸 슬롯 (기본 1; Save.slots = 3)
+Save.set("level", "level3")         -- 바로 저장된다
+Save.get("level", "level1")         -- 없으면 기본값
+Save.label("레벨 3 · 보석 12개")     -- 슬롯 화면에 표시
+Save.info(n)                         -- { time, label }, 비어 있으면 nil
+Save.clear(n)
+```
+
+## 레벨, 문, 행동
+
+```lua
+Level.player = hero                  -- 박스 {x, y, w, h}
+Level.start("level1")                -- 첫 맵 (테스트 중에는 "Play from here" 위치)
+Level.go("cave", "entrance")         -- 다른 맵의, 이름(또는 종류)이 "entrance"인 오브젝트 위치로
+Level.onEnter = function(map) ... end
+
+function update(dt)
+  Actors.update(dt, hero)             -- 행동이 있는 오브젝트를 모두 움직인다
+end
+function draw()
+  Cam.apply()
+  map(Level.current)
+  Actors.draw()
+end
+```
+
+Map 탭에서 오브젝트의 행동을 고르거나 prop `behavior`를 적는다. 나머지 prop으로 조절한다.
+
+| 행동 | 하는 일 | Props (기본값) |
+|---|---|---|
+| `patrol` | 걸어 다니다 벽·낭떠러지에서 돈다 | `speed=30` `gravity=500` |
+| `chase` | 플레이어가 가까우면 쫓아온다 | `speed=40` `range=120` |
+| `shoot` | 플레이어가 가까우면 쏜다 | `rate=1.5` `range=150` `bulletSpeed=100` `bullet=(스프라이트)` |
+| `pickup` | 닿으면 획득 | `value=1` `sound=coin` |
+| `hazard` | 닿으면 피해 | |
+| `door` | 다른 맵으로 이동 | `target=(맵)` `to=(시작 위치 이름)` `key=up` (또는 `none`) |
+| `bob` | 위아래로 둥실둥실 | `height=3` |
+
+- 이벤트: `Actors.onPickup(a)`, `Actors.onHurt(a)`, `Actors.onStomp(a)` (횡스크롤에서 적을 밟았을 때), `Actors.onDoor(a)`. `Actors.collected[type]`에 획득 수가 쌓인다.
+- 탑다운 게임은 `Actors.view = "top"` (중력 없음, 추적은 `Path`로 벽을 돌아간다). 기본값은 `"side"`.
 
 ## 길찾기 (`Path`)
 

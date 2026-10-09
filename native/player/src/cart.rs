@@ -147,6 +147,9 @@ pub struct Cartridge {
     /// particle presets from the editor: name -> burst options (fx:burst(x, y, "name"))
     #[serde(default)]
     pub particles: std::collections::HashMap<String, serde_json::Value>,
+    /// UI screens made in the editor (HUDs, menus): name -> { elements }, drawn by UI.screen(name)
+    #[serde(default)]
+    pub screens: std::collections::HashMap<String, serde_json::Value>,
 }
 
 impl TileMap {
@@ -200,6 +203,17 @@ pub fn load() -> Result<(Cartridge, Source), String> {
     #[allow(unreachable_code)]
     if let Some(bytes) = embedded() {
         return Ok((parse(&bytes)?, Source::Embedded));
+    }
+    // exported macOS / Linux games: game.slate beside the player (Mac: Contents/Resources in the .app),
+    // so the signed player binary stays untouched
+    if std::env::args().skip(1).all(|a| a.starts_with("--")) {
+        if let Some(dir) = std::env::current_exe().ok().and_then(|e| e.parent().map(Path::to_path_buf)) {
+            for p in [dir.join("game.slate"), dir.join("../Resources/game.slate")] {
+                if let Ok(bytes) = std::fs::read(&p) {
+                    return Ok((parse(&bytes)?, Source::Embedded));
+                }
+            }
+        }
     }
     let path = std::env::args()
         .skip(1)

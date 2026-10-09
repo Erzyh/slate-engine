@@ -2,6 +2,7 @@
 // export games with the native player (native/player).
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod android;
 mod plugins;
 mod project;
 
@@ -9,11 +10,18 @@ use std::path::PathBuf;
 use std::process::{Child, Command};
 use std::sync::Mutex;
 
-/// The native player, embedded at build time (build it first: `cargo build --release` in native/).
+/// The native players, embedded at build time (build.rs: this OS's `cargo build --release` in
+/// native/, others from CI). Empty when a build has none for that system.
+static PLAYER_WINDOWS: &[u8] = include_bytes!(env!("SLATE_PLAYER_WINDOWS"));
+static PLAYER_MACOS: &[u8] = include_bytes!(env!("SLATE_PLAYER_MACOS"));
+static PLAYER_LINUX: &[u8] = include_bytes!(env!("SLATE_PLAYER_LINUX"));
+/// The one that runs games from the editor (this system's)
 #[cfg(windows)]
-static PLAYER: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../native/target/release/slate-player.exe"));
-#[cfg(not(windows))]
-static PLAYER: &[u8] = &[];
+static PLAYER: &[u8] = PLAYER_WINDOWS;
+#[cfg(target_os = "macos")]
+static PLAYER: &[u8] = PLAYER_MACOS;
+#[cfg(all(unix, not(target_os = "macos")))]
+static PLAYER: &[u8] = PLAYER_LINUX;
 
 const MAGIC: &[u8; 8] = b"SLATECRT";
 
@@ -73,6 +81,11 @@ fn player_path() -> Result<PathBuf, String> {
     let stale = std::fs::metadata(&path).map(|m| m.len() != PLAYER.len() as u64).unwrap_or(true);
     if stale {
         std::fs::write(&path, PLAYER).map_err(|e| format!("cannot write player: {e}"))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755));
+        }
     }
     Ok(path)
 }
@@ -164,11 +177,11 @@ fn is_running(state: tauri::State<Runner>) -> bool {
 /// Export a standalone Windows game: [player][cartridge json][u64 len LE]["SLATECRT"].
 #[tauri::command]
 fn export_windows(json: String, path: String) -> Result<u64, String> {
-    if PLAYER.is_empty() {
-        return Err("Windows export is only available in the Windows build".into());
+    if PLAYER_WINDOWS.is_empty() {
+        return Err("this Slate build has no Windows player".into());
     }
-    let mut out = Vec::with_capacity(PLAYER.len() + json.len() + 16);
-    out.extend_from_slice(PLAYER);
+    let mut out = Vec::with_capacity(PLAYER_WINDOWS.len() + json.len() + 16);
+    out.extend_from_slice(PLAYER_WINDOWS);
     out.extend_from_slice(json.as_bytes());
     out.extend_from_slice(&(json.len() as u64).to_le_bytes());
     out.extend_from_slice(MAGIC);
@@ -217,15 +230,23 @@ fn crc32(data: &[u8]) -> u32 {
 
 /// A .zip with stored (uncompressed) entries.
 fn zip(files: &[(&str, &[u8])]) -> Vec<u8> {
+    let with_modes: Vec<(&str, &[u8], u32)> = files.iter().map(|(n, d)| (*n, *d, 0)).collect();
+    zip_modes(&with_modes)
+}
+
+/// A zip whose entries can carry Unix permissions (mode 0 = none), so programs stay executable.
+fn zip_modes(files: &[(&str, &[u8], u32)]) -> Vec<u8> {
     let (mut out, mut central) = (Vec::new(), Vec::new());
-    for (name, data) in files {
+    for (name, data, mode) in files {
+        let mode = *mode;
         let crc = crc32(data);
         let offset = out.len() as u32;
         let (n, size) = (name.len() as u16, data.len() as u32);
         let header = |sig: u32, central: bool| {
             let mut h = sig.to_le_bytes().to_vec();
             if central {
-                h.extend_from_slice(&20u16.to_le_bytes()); // made by
+                // made by: Unix (3) when there are permissions to keep
+                h.extend_from_slice(&(if mode != 0 { 0x0314u16 } else { 20u16 }).to_le_bytes());
             }
             h.extend_from_slice(&20u16.to_le_bytes()); // version needed
             h.extend_from_slice(&0x0800u16.to_le_bytes()); // utf-8 names
@@ -238,7 +259,7 @@ fn zip(files: &[(&str, &[u8])]) -> Vec<u8> {
             h.extend_from_slice(&0u16.to_le_bytes()); // extra
             if central {
                 h.extend_from_slice(&[0; 6]); // comment length, disk, internal attributes
-                h.extend_from_slice(&0u32.to_le_bytes()); // external attributes
+                h.extend_from_slice(&((mode | if mode != 0 { 0o100000 } else { 0 }) << 16).to_le_bytes()); // external attributes
                 h.extend_from_slice(&offset.to_le_bytes());
             }
             h.extend_from_slice(name.as_bytes());
@@ -258,6 +279,79 @@ fn zip(files: &[(&str, &[u8])]) -> Vec<u8> {
     out.extend_from_slice(&cd_offset.to_le_bytes());
     out.extend_from_slice(&[0; 2]);
     out
+}
+
+/// A file name from a game name (letters, digits, - and _).
+fn file_name(name: &str) -> String {
+    let s: String = name.chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '-' }).collect();
+    if s.trim_matches('-').is_empty() { "game".into() } else { s }
+}
+
+/// Export a macOS game: a .zip holding Name.app (the player + Resources/game.slate, signature intact).
+#[tauri::command]
+fn export_macos(json: String, name: String, path: String) -> Result<u64, String> {
+    if PLAYER_MACOS.is_empty() {
+        return Err("this Slate build has no macOS player (it comes with the builds made by CI)".into());
+    }
+    let n = file_name(&name);
+    let esc = name.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;");
+    let plist = format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleExecutable</key><string>{n}</string>
+  <key>CFBundleIdentifier</key><string>dev.slate.game.{n}</string>
+  <key>CFBundleName</key><string>{esc}</string>
+  <key>CFBundleDisplayName</key><string>{esc}</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>1.0</string>
+  <key>CFBundleVersion</key><string>1</string>
+  <key>LSMinimumSystemVersion</key><string>10.13</string>
+  <key>NSHighResolutionCapable</key><true/>
+</dict>
+</plist>
+"#
+    );
+    let (exe, res, info) = (format!("{n}.app/Contents/MacOS/{n}"), format!("{n}.app/Contents/Resources/game.slate"), format!("{n}.app/Contents/Info.plist"));
+    let out = zip_modes(&[(&info, plist.as_bytes(), 0o644), (&exe, PLAYER_MACOS, 0o755), (&res, json.as_bytes(), 0o644)]);
+    std::fs::write(&path, &out).map_err(|e| format!("cannot write {path}: {e}"))?;
+    Ok(out.len() as u64)
+}
+
+/// Export a Linux game: a .zip with the player (marked executable) and game.slate next to it.
+#[tauri::command]
+fn export_linux(json: String, name: String, path: String) -> Result<u64, String> {
+    if PLAYER_LINUX.is_empty() {
+        return Err("this Slate build has no Linux player (it comes with the builds made by CI)".into());
+    }
+    let n = file_name(&name);
+    let (exe, cart) = (format!("{n}/{n}"), format!("{n}/game.slate"));
+    let out = zip_modes(&[(&exe, PLAYER_LINUX, 0o755), (&cart, json.as_bytes(), 0o644)]);
+    std::fs::write(&path, &out).map_err(|e| format!("cannot write {path}: {e}"))?;
+    Ok(out.len() as u64)
+}
+
+/// Export an Android game: the shell app + the web player + game.slate, signed (.apk).
+#[tauri::command]
+fn export_android(json: String, name: String, title: String, path: String) -> Result<u64, String> {
+    if WEB_WASM.is_empty() {
+        return Err("this Slate build has no web player (Android games run it)".into());
+    }
+    let cart: serde_json::Value = serde_json::from_str(&json).map_err(|e| e.to_string())?;
+    let res = &cart["resolution"];
+    let portrait = res[1].as_f64().unwrap_or(0.0) > res[0].as_f64().unwrap_or(0.0);
+    let mut web: Vec<(&str, &[u8])> = WEB_FILES.to_vec();
+    web.push(("slate-player.wasm", WEB_WASM));
+    let out = android::build_apk(&json, &name, &title, portrait, &web)?;
+    std::fs::write(&path, &out).map_err(|e| format!("cannot write {path}: {e}"))?;
+    Ok(out.len() as u64)
+}
+
+/// Which systems this build can export native games for.
+#[tauri::command]
+fn export_targets() -> Vec<&'static str> {
+    [("windows", PLAYER_WINDOWS), ("macos", PLAYER_MACOS), ("linux", PLAYER_LINUX)].iter().filter(|(_, p)| !p.is_empty()).map(|(n, _)| *n).collect()
 }
 
 /// Export a browser build as a .zip (index.html at the top): upload it to itch.io as an HTML game.
@@ -288,6 +382,10 @@ fn main() {
             is_running,
             player_output,
             export_windows,
+            export_macos,
+            export_linux,
+            export_targets,
+            export_android,
             export_web,
             update_test,
             open_url,

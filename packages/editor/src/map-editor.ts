@@ -12,6 +12,7 @@
 
 import { ask, askSize, codeName, confirmBox, form } from "./modal.ts";
 import { popupMenu } from "./menu.ts";
+import { template } from "./examples.ts";
 import { resolveObject, TILE_STRIDE, type MapLayer, type MapObject, type ObjectTemplate, type TileMap } from "@slate/runtime";
 import type { EditSprite, Project } from "./project.ts";
 import { canvasView, type CanvasView } from "./canvas-view.ts";
@@ -23,7 +24,7 @@ The right column is a pillar one tile wide: top, middle, bottom.
 The bottom row is a ledge one tile high: left, middle, right.
 The bottom-right tile stands alone.`;
 
-export type MapTool = "pen" | "erase" | "fill" | "rect" | "picker" | "object";
+export type MapTool = "pen" | "erase" | "fill" | "rect" | "picker" | "walls" | "object";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -43,6 +44,8 @@ export interface MapHooks {
   playFrom(map: string, x: number, y: number): void;
   /** object templates changed (they live in slate.json) */
   templatesChanged(): void;
+  /** a sprite was added (a starter tileset) */
+  spriteAdded?(name: string): void;
 }
 
 /** An autotile terrain: 16 tiles laid out 4x4 (a 3x3 block for areas, a column, a row, a single). */
@@ -84,6 +87,9 @@ export class MapEditor {
   private picking = false;
   /** the template new objects are made from (null = from the fields) */
   private tpl: string | null = null;
+  /** walls tool: the solid state a drag is painting (set by the first tile clicked) */
+  private wallPaint: boolean | null = null;
+  private wallSeen = new Set<number>();
 
   constructor(private hooks: MapHooks) {
     const c = this.canvas;
@@ -368,6 +374,13 @@ export class MapEditor {
     if (this.tool === "object") return this.objDown(e);
     const [tx, ty] = this.cellAt(e);
     if (this.tool === "picker" || e.altKey) return this.pickAt(tx, ty);
+    if (this.tool === "walls") {
+      this.wallPaint = null;
+      this.wallSeen.clear();
+      this.down = true;
+      this.wallAt(tx, ty);
+      return;
+    }
     this.erasing = e.button === 2 || this.tool === "erase";
     this.snapshot();
     this.before = this.data()!.slice();
@@ -407,6 +420,10 @@ export class MapEditor {
       return;
     }
     if (!moved) return;
+    if (this.tool === "walls") {
+      this.wallAt(tx, ty);
+      return;
+    }
     if (this.tool === "rect") {
       const d = this.data()!;
       for (let i = 0; i < d.length; i++) d[i] = this.before![i];
@@ -427,7 +444,53 @@ export class MapEditor {
     }
     if (!this.down) return;
     this.down = false;
+    if (this.tool === "walls") {
+      this.wallPaint = null;
+      this.render();
+      return;
+    }
     this.done();
+  }
+
+  /** Walls tool: make every tile like the one at (tx, ty) solid or not (its tileset's flag 0). */
+  private wallAt(tx: number, ty: number) {
+    const m = this.map;
+    if (!m || tx < 0 || ty < 0 || tx >= m.w || ty >= m.h) return;
+    // the topmost visible tile there, on a layer that collides
+    let v = -1;
+    for (let i = m.layers.length - 1; i >= 0; i--) {
+      const l = m.layers[i];
+      const x = l.data[ty * m.w + tx];
+      if (x >= 0 && l.visible !== false && !l.parallax) {
+        v = x;
+        break;
+      }
+    }
+    if (v < 0 || this.wallSeen.has(v)) return;
+    this.wallSeen.add(v);
+    const t = this.project?.get(this.sets()[Math.floor(v / TILE_STRIDE)]);
+    if (!t) return;
+    const f = v % TILE_STRIDE;
+    const solid = ((t.flags[f] ?? 0) & 1) === 1;
+    if (this.wallPaint === null) this.wallPaint = !solid;
+    if (solid === this.wallPaint) return;
+    t.flags[f] = this.wallPaint ? (t.flags[f] ?? 0) | 1 : (t.flags[f] ?? 0) & ~1;
+    this.renderPalette();
+    this.render();
+    this.hooks.flagsChanged(t);
+    this.hooks.status(`Every "${t.name}" tile #${f} is ${this.wallPaint ? "solid now (a wall)" : "no longer solid"}`);
+  }
+
+  /** Is the cell solid for the game (flag 0 on a layer that collides)? */
+  private cellSolid(x: number, y: number) {
+    const m = this.map!;
+    return m.layers.some((l) => {
+      if (l.parallax) return false;
+      const v = l.data[y * m.w + x];
+      if (v < 0) return false;
+      const t = this.project?.get(this.sets()[Math.floor(v / TILE_STRIDE)]);
+      return !!t && ((t.flags[v % TILE_STRIDE] ?? 0) & 1) === 1;
+    });
   }
 
   private done() {
@@ -515,6 +578,17 @@ export class MapEditor {
         }
     });
     g.globalAlpha = 1;
+    // collision: solid cells in red
+    if (this.tool === "walls" || $<HTMLInputElement>("map-collision").checked) {
+      g.fillStyle = "rgba(255, 77, 109, 0.38)";
+      g.strokeStyle = "rgba(255, 77, 109, 0.9)";
+      for (let y = 0; y < m.h; y++)
+        for (let x = 0; x < m.w; x++)
+          if (this.cellSolid(x, y)) {
+            g.fillRect(x * tw, y * th, tw, th);
+            if (tw >= 12) g.strokeRect(x * tw + 0.5, y * th + 0.5, tw - 1, th - 1);
+          }
+    }
     if (this.grid && tw >= 8) {
       g.strokeStyle = "rgba(255,255,255,0.08)";
       g.beginPath();
@@ -891,12 +965,34 @@ export class MapEditor {
   private async newMap() {
     const p = this.project;
     if (!p) return;
-    if (!p.sprites.length) return this.hooks.status("Make a tileset first: a sprite whose frames are the tiles", true);
-    const t = this.palSet ?? p.sprites.find((s) => s.frameCount > 1) ?? p.sprites[0];
+    const sheets = p.sprites.filter((s) => s.frameCount > 1);
+    const options: [string, string][] = [
+      ...sheets.map((s): [string, string] => [s.name, `${s.name}  (${s.frameCount} tiles of ${s.w}×${s.h})`]),
+      ["starter:platformer", "Starter tiles: side view (grass, dirt, stone, planks, spikes)"],
+      ["starter:topdown", "Starter tiles: top-down (grass, path, water, walls, trees)"],
+    ];
     const [rw, rh] = p.cart.resolution;
-    const size = await askSize("New map", Math.ceil(rw / t.w), Math.ceil(rh / t.h), { message: `Tiles from "${t.name}" (${t.w}×${t.h} pixels each). One screen is ${Math.ceil(rw / t.w)}×${Math.ceil(rh / t.h)} tiles.`, unit: "tiles", ok: "Create" });
-    if (!size) return;
-    const [w, h] = size;
+    const r = await form({
+      title: "New map",
+      message: sheets.length ? "A tileset is a sprite whose frames are the tiles." : "No tileset yet: start with one of the starter sets (you can repaint it later).",
+      fields: [
+        { key: "tiles", label: "Tiles", type: "select", value: this.palSet?.name ?? options[0][0], options },
+        { key: "w", label: "Width (tiles)", type: "number", value: Math.ceil(rw / 16) * 2, min: 1, max: 1024, half: true },
+        { key: "h", label: "Height (tiles)", type: "number", value: Math.ceil(rh / 16), min: 1, max: 1024, half: true },
+      ],
+      ok: "Create",
+    });
+    if (!r) return;
+    let t = p.get(String(r.tiles));
+    const starter = String(r.tiles).match(/^starter:(\w+)$/);
+    if (starter) {
+      const def = template(starter[1])?.sprites.find((s) => s.name === "tiles");
+      if (!def) return this.hooks.status("Couldn't load the starter tiles", true);
+      t = await p.addSpriteDef(def, starter[1] === "topdown" ? "tiles_topdown" : "tiles");
+      this.hooks.spriteAdded?.(t.name);
+    }
+    if (!t) return;
+    const w = Math.max(1, Math.round(Number(r.w) || 1)), h = Math.max(1, Math.round(Number(r.h) || 1));
     let name = "level", i = 2;
     while (p.maps.some((m) => m.name === name)) name = `level${i++}`;
     const layer = (n: string): MapLayer => ({ name: n, visible: true, data: new Array(w * h).fill(-1) });
@@ -905,7 +1001,7 @@ export class MapEditor {
     this.layer = 1;
     this.renderLayers();
     this.hooks.changed();
-    this.hooks.status(`Map "${name}" created · draw it in code with map("${name}", 0, 0)`);
+    this.hooks.status(`Map "${name}" created · draw it in code with map("${name}", 0, 0) · red = walls (Collision)`);
   }
 
   private async resizeMap() {
@@ -957,6 +1053,7 @@ export class MapEditor {
     };
     $<HTMLInputElement>("map-grid").onchange = (e) => { this.grid = (e.target as HTMLInputElement).checked; this.render(); };
     $<HTMLInputElement>("map-dim").onchange = () => this.render();
+    $<HTMLInputElement>("map-collision").onchange = () => this.render();
     $("map-zoom-in").onclick = () => this.view.zoomTo(this.view.step(1));
     $("map-zoom-out").onclick = () => this.view.zoomTo(this.view.step(-1));
     $<HTMLInputElement>("tile-solid").onchange = (e) => {
@@ -1325,6 +1422,47 @@ export class MapEditor {
     this.hooks.templatesChanged();
   }
 
+  /** Object types worth suggesting: the ones the game code looks for, then the ones already placed. */
+  private typeHints(): { name: string; code: boolean }[] {
+    const code = new Set<string>();
+    for (const src of Object.values(this.project?.scripts ?? {})) {
+      for (const m of src.matchAll(/objects\(\s*[^,()]+,\s*["']([\w-]+)["']/g)) code.add(m[1]);
+      for (const m of src.matchAll(/\.type\s*==\s*["']([\w-]+)["']/g)) code.add(m[1]);
+    }
+    const used = new Set<string>();
+    for (const m of this.project?.maps ?? []) for (const o of m.objects ?? []) used.add(o.type);
+    for (const t of Object.values(this.project?.cart.templates ?? {})) used.add(t.type);
+    const out = [...code].map((name) => ({ name, code: true }));
+    for (const name of used) if (!code.has(name)) out.push({ name, code: false });
+    return out.slice(0, 14);
+  }
+
+  private renderTypeHints() {
+    const box = $("obj-type-hints");
+    box.innerHTML = "";
+    const cur = $<HTMLInputElement>("obj-type").value.trim();
+    for (const h of this.typeHints()) {
+      if (h.name === cur) continue;
+      const b = document.createElement("button");
+      b.textContent = h.name;
+      b.className = h.code ? "from-code" : "";
+      b.title = h.code ? `The game code looks for "${h.name}" objects` : `Already placed on a map`;
+      b.onclick = () => {
+        const input = $<HTMLInputElement>("obj-type");
+        input.value = h.name;
+        input.dispatchEvent(new Event("change"));
+        // a sprite with the same name is the likely look
+        if (this.project?.get(h.name) && !this.sel?.template) {
+          const s = $<HTMLSelectElement>("obj-sprite");
+          s.value = h.name;
+          s.dispatchEvent(new Event("change"));
+        }
+        this.renderTypeHints();
+      };
+      box.appendChild(b);
+    }
+  }
+
   private renderObjectPanel() {
     this.renderTemplates();
     const sel = $<HTMLSelectElement>("obj-sprite");
@@ -1365,6 +1503,9 @@ export class MapEditor {
       props.placeholder = "hp=10\npath=sine";
       $("obj-pos").textContent = editingTpl ? "" : "new objects use these";
     }
+    this.renderTypeHints();
+    const shownProps = o ? this.shown(o).props : null;
+    $<HTMLSelectElement>("obj-behavior").value = String(shownProps?.behavior ?? (o ? "" : $<HTMLSelectElement>("obj-behavior").value));
   }
 
   private wireObjects() {
@@ -1408,6 +1549,24 @@ export class MapEditor {
     $("obj-sprite").addEventListener("change", apply);
     $("obj-props").addEventListener("change", apply);
     $("obj-del").onclick = () => this.deleteSelected();
+    // behavior: a prop, with the defaults it needs written out so they are easy to tweak
+    $("obj-behavior").addEventListener("change", () => {
+      const b = $<HTMLSelectElement>("obj-behavior").value;
+      const ta = $<HTMLTextAreaElement>("obj-props");
+      const props = this.parseProps(ta.value);
+      delete props.behavior;
+      const DEFAULTS: Record<string, Record<string, string | number>> = {
+        patrol: { speed: 30 }, chase: { speed: 40, range: 120 }, shoot: { rate: 1.5, range: 150 }, pickup: { value: 1 },
+        door: { target: this.project?.maps.find((m) => m.name !== this.map?.name)?.name ?? "level2", to: "start", key: "up" }, bob: { height: 3 },
+      };
+      const next: Record<string, string | number | boolean> = b ? { behavior: b } : {};
+      for (const [k, v] of Object.entries(DEFAULTS[b] ?? {})) next[k] = props[k] ?? v;
+      for (const [k, v] of Object.entries(props)) if (!(k in next) && !["speed", "range", "rate", "value", "target", "to", "key", "height"].includes(k)) next[k] = v;
+      ta.value = Object.entries(next).map(([k, v]) => `${k}=${v}`).join("\n");
+      ta.dispatchEvent(new Event("change"));
+      if (b === "door") this.hooks.status('Door: "target" is the map, "to" the object (its type, or a name= prop) to arrive at · key=none walks through');
+      else if (b) this.hooks.status(`In code: Actors.update(dt, player) and Actors.draw() (inside Cam.apply()) · Level.go loads a map's actors`);
+    });
     $("obj-tpl-save").onclick = () => void this.saveTemplate();
     $("obj-tpl-detach").onclick = () => {
       const o = this.sel;
@@ -1451,7 +1610,7 @@ export class MapEditor {
       this.hooks.changed();
       return true;
     }
-    const tools: Record<string, MapTool> = { b: "pen", e: "erase", g: "fill", u: "rect", i: "picker", o: "object" };
+    const tools: Record<string, MapTool> = { b: "pen", e: "erase", g: "fill", u: "rect", i: "picker", c: "walls", o: "object" };
     if (tools[k]) { this.setTool(tools[k]); return true; }
     if (e.key === "+" || e.key === "=") { $("map-zoom-in").click(); return true; }
     if (e.key === "-") { $("map-zoom-out").click(); return true; }

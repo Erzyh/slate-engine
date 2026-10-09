@@ -34,12 +34,13 @@ my-game/
 | File list (left) | The project folder. Click to open (script → Code, sprite → Pixel, map → Map). Right click / `+`: new script, sprite, map or folder, import files, rename, delete, "Run first (main)". Unsaved files show a ●. Dropping files on the window imports them. Drag a sprite onto a map to place it |
 | Pixel | The pixel editor (below) |
 | Map | Paint tile maps, place objects |
+| UI (`4`) | Lay out HUDs and menu screens (below) |
 | Code | A tab per file, Luau highlighting, completion and help (below), find (`Ctrl+F`). The **console** below shows the game's `log()` output and errors; click an error to jump to its line |
 | Play (`Space`) | The game runs in the **Game panel** on the right (turn off View → Play in the Game view for a separate window). Art and map edits show up **without restarting**; `Ctrl+Enter` restarts with new code |
 | Game panel | Pause / Step (`F6` / `F7`): stop game time and advance one frame at a time. Hitboxes: every box that went through `Physics` gets a green outline, solid tiles turn red. Stats: frame rate and draw count |
 | Game panel capture | Screenshot (`F8`): the current frame as a PNG. Record GIF (`F9`): press again to stop and save a GIF (up to 20 s, scaled up to look sharp). For itch.io pages and posts |
 | File | New project, open folder (`Ctrl+O`), save as, import a `.slate`. `Ctrl+S` saves (only changed files are written) |
-| Export | Windows game (.exe, one standalone file), web game (.zip for itch.io), cartridge (.slate) |
+| Export | Windows game (.exe, one standalone file), macOS / Linux game (.zip), Android app (.apk), web game (.zip for itch.io), cartridge (.slate) |
 
 ## Pixel editor
 
@@ -52,7 +53,7 @@ my-game/
 | Hitbox | Drag with the Hitbox tool (drag inside to move, handles resize). Fit to pixels = snug around the drawn pixels. In code: `hitbox("hero", x, y)` |
 | View | Wheel zooms (around the cursor), Shift+wheel scrolls sideways, drag with the wheel button to pan |
 | Layers | Add / duplicate / delete / reorder / merge, visibility, opacity, lock, alpha lock (only painted pixels take paint, for shading) |
-| Frames | Add / duplicate / delete / move, onion skin, `,` `.` to step, `Enter` to play |
+| Frames | Add / duplicate / delete, drag to reorder (Shift+click selects a range), onion skin, `,` `.` to step, `Enter` to play. Right click or `Ctrl+C/X/V` / `Del` after clicking the timeline: copy, cut, paste after, duplicate, delete. Frames paste into other sprites too (centered when the size differs) |
 | Frame time | A duration (ms) per frame; empty = use the FPS. Shift+click to set several at once |
 | Tags | Name a range of frames (`idle`, `walk`…). Forward / reverse / ping-pong |
 | Image… | Flip, rotate, outline, replace color, adjust colors (hue / saturation / lightness / brightness / contrast), ×2 / ×½, canvas size, trim |
@@ -68,10 +69,23 @@ my-game/
 - **Autotiles**: draw 16 tiles as a 4×4 block (top-left 3×3 = corners, edges and middle of a filled area; right column = top, middle, bottom of a one-tile-wide pillar; bottom row = left, middle, right of a one-tile-high ledge; bottom right = alone). Select the block in the palette with Shift+drag, right click → Make autotile. With Autotile on, painting any of its tiles picks the piece that fits the neighbors.
 - **Animated tiles**: select the tiles that make the frames, right click → Make animated tile. They cycle wherever they are placed (water, lava, torches).
 - **Background layers**: double click a layer (or right click → Layer settings) → Scroll speed. 0.5 moves at half the camera's speed (a far background), 0 stays put. Repeat sideways tiles it forever. Background layers never collide.
-- **Objects (`O`)**: place enemies, items and spawn points. Click = place, drag = move, right click / `Del` = delete. Edit Type, Sprite and Props (`hp=10`). In code: `for _, o in objects("level1", "enemy") do ... end`.
+- **Walls (`C`)**: click or drag over tiles to make that tile solid or not (it changes the tile's flag, so every copy of that tile changes). Turn on **Collision** above the map to see solid cells in red.
+- **Objects (`O`)**: place enemies, items and spawn points. Click = place, drag = move, right click / `Del` = delete. Edit Type, Sprite and Props (`hp=10`). Under Type, chips suggest the types your code looks for (`objects(map, "enemy")`, `o.type == "coin"`) and the ones already placed. In code: `for _, o in objects("level1", "enemy") do ... end`.
+- **Behavior**: pick one in the Object panel (patrol, chase, shoot, pickup, hazard, door, bob) and the object moves by itself with `Actors` ([API](api.md#levels-doors-and-behaviors)). Its settings are written into Props with their defaults, ready to change.
+- **New map**: the tiles list also offers starter tilesets (platformer, top-down) that are copied into the project, ready to paint.
 - **Dragging sprites in**: drop a sprite from the file list onto the map to place it as an object (type = the sprite's name).
 - **Object templates**: select an object → Save as template; it appears in the Object panel. Click a template and then the map, or drag it onto the map, to place a copy. Changing the template's type or sprite changes every copy; the Props box holds values for that copy only. Detach = make it a normal object.
 - **Play from here** (`P`): click where the player should start and the game starts there ([API](api.md#play-from-here)).
+
+## UI editor
+
+The UI tab lays out screens (a HUD, a title menu, a game over screen) that the game draws with `UI.screen("hud")`.
+
+- New / rename / delete screens at the top. The preview shows the screen over your first map, at the game's resolution.
+- Add elements from the toolbar: **panel** (a box), **text**, **sprite**, **bar**, **button**. Drag to move, drag the corner handle to resize. Arrow keys move 1 px (Shift: 8), `Ctrl+D` duplicates, `Del` deletes, `Ctrl+Z` undoes.
+- Game values: in a text write `{score}` or `{G.coins}` and the current value is shown. A sprite's **Repeat** draws it that many times (`hp` → one heart per hit point). A bar fills by **Value** / **Max** (`hp`, `maxHp`). **Visible** hides an element while that value is false or 0.
+- Buttons have an **id**: `UI.screen("title")` returns it in the frame the button is clicked.
+- **Preview values**: one `name=value` per line (`G.score=1200`) to see how the screen looks with them (they aren't saved into the game).
 
 ## Particle editor
 
@@ -112,6 +126,14 @@ Open them from the Examples menu.
 |---|---|
 | `games/jelly` | **Jelly Jump**: a platformer. All pixel art designed by hand. The jelly squashes, stretches and wobbles from a single sprite in code; the beetle has a 2-frame walk (`Anim`). 7 module-style scripts. Dev keys: F2 flag, F8 autopilot |
 | `games/star-barrage` | **Star Barrage**: a vertical bullet-hell shooter. 5 stages + an endless loop, 10 bosses (31 phases), 17 bullet patterns, 16 permanent upgrades, a 10-track soundtrack (Slate Synth). Stages = objects on the maps `stage1`–`5`. Dev keys F2 / F3 / F4 / F6 (see `scripts/data.luau`) |
+
+## Exporting for macOS, Linux and Android
+
+- **macOS game (.zip)**: unzip it; the `.app` is the game. It isn't signed by Apple, so the first launch is right click → Open.
+- **Linux game (.zip)**: unzip it and run the program inside (`game.slate` must stay next to it).
+- macOS and Linux export need the player for that system: the macOS and Linux builds of Slate carry all three players; in a build without them the items are greyed out.
+- **Android app (.apk)**: a phone app with the web player inside. Copy it to the phone and open it to install (allow installing from that app the first time). Tall resolutions (taller than wide) lock to portrait, others to landscape. The on-screen d-pad and buttons appear on touch screens.
+- The app is signed with a key Slate makes once in `~/.slate/` (`android-signing-key.der`). **Keep a copy**: a newer version of the app installs over the old one only when it is signed with the same key. The package name is `dev.slate.game.<save name>`.
 
 ## Exporting a web game (itch.io)
 

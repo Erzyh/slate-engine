@@ -225,6 +225,16 @@ export class Project {
     return s;
   }
 
+  /** Add a sprite from a cartridge definition (e.g. a starter tileset); returns it under a free name. */
+  async addSpriteDef(def: SpriteDef, name = def.name, folder = "sprites") {
+    const s = await loadSprite(def);
+    s.name = this.uniqueName(name);
+    s.folder = folder;
+    this.sprites.push(s);
+    this.emit("sprites", s.name);
+    return s;
+  }
+
   removeSprite(name: string) {
     this.sprites = this.sprites.filter((s) => s.name !== name);
     this.emit("sprites");
@@ -351,7 +361,7 @@ export class Project {
     const json = (o: unknown) => enc.encode(JSON.stringify(o, null, 2) + "\n");
     const files = new Map<string, Uint8Array>();
     const c = this.cart;
-    files.set(PROJECT_FILE, json({ name: c.name, title: c.title ?? c.name, resolution: c.resolution, background: c.background, main: c.main, ...(c.fullscreen ? { fullscreen: true } : {}), ...(c.palette?.length ? { palette: c.palette } : {}), ...(c.particles && Object.keys(c.particles).length ? { particles: c.particles } : {}), ...(c.templates && Object.keys(c.templates).length ? { templates: c.templates } : {}) }));
+    files.set(PROJECT_FILE, json({ name: c.name, title: c.title ?? c.name, resolution: c.resolution, background: c.background, main: c.main, ...(c.fullscreen ? { fullscreen: true } : {}), ...(c.palette?.length ? { palette: c.palette } : {}), ...(c.particles && Object.keys(c.particles).length ? { particles: c.particles } : {}), ...(c.templates && Object.keys(c.templates).length ? { templates: c.templates } : {}), ...(c.screens && Object.keys(c.screens).length ? { screens: c.screens } : {}) }));
     for (const [path, src] of Object.entries(this.scripts)) files.set(path, enc.encode(src));
     for (const s of this.sprites) {
       const base = `${s.folder}/${s.name}`;

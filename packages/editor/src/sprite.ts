@@ -131,6 +131,22 @@ export class EditSprite {
     }
   }
 
+  /** Move frames [from, from + count) so they start at `to` (an index in the list without them). */
+  moveFrames(from: number, count: number, to: number) {
+    const take = <T>(a: T[]) => a.splice(from, count);
+    const flags = take(this.flags);
+    this.flags.splice(to, 0, ...flags.map((f) => f ?? 0));
+    if (this.durations.length) {
+      while (this.durations.length < this.frameCount) this.durations.push(0);
+      const d = take(this.durations);
+      this.durations.splice(to, 0, ...d);
+    }
+    for (const l of this.layers) {
+      const c = take(l.cels);
+      l.cels.splice(to, 0, ...c);
+    }
+  }
+
   // ------------------------------------------------------------ layers
 
   addLayer(at: number, name = `Layer ${this.layers.length + 1}`) {

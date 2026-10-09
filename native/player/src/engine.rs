@@ -36,6 +36,8 @@ pub struct Engine {
     pub playtest: Option<serde_json::Value>,
     /// particle presets (Particles.preset)
     pub particles: HashMap<String, serde_json::Value>,
+    /// UI screens (UI.screen)
+    pub screens: HashMap<String, serde_json::Value>,
 }
 
 /// Default actions: arrows / WASD / d-pad / left stick to move, A B X Y like a gamepad.
@@ -80,6 +82,7 @@ impl Engine {
             debug_boxes: false,
             playtest: None,
             particles: HashMap::new(),
+            screens: HashMap::new(),
         }
     }
 

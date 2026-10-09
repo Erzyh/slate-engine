@@ -1162,6 +1162,65 @@ function UI_.pause.draw()
   p.menu:draw(W / 2, H / 2 - h / 2 + 28)
 end
 
+-- UI screens made in the editor's UI tab (a HUD, a title menu...):
+--   UI.screen("hud")              -- draws it (call after Cam.reset()); returns the id of a button clicked now
+-- Texts show game values with {name} or {G.coins}; sprites repeat by a value (hearts); bars fill by a value.
+
+-- a global (or a field of one) by its dotted name; numbers stay numbers
+local function lookup(path)
+  local n = tonumber(path)
+  if n then return n end
+  local v = _G
+  for part in string.gmatch(path, "[^%.]+") do
+    if type(v) ~= "table" then return nil end
+    v = v[part]
+  end
+  return v
+end
+
+-- "{G.coins}" -> "12"; braces that aren't values (Text markup like {wave}) stay as they are
+local function fillText(str)
+  return (string.gsub(str, "{([%a_][%w_%.]*)}", function(p)
+    local v = lookup(p)
+    if v == nil or type(v) == "table" or type(v) == "function" then return nil end
+    if type(v) == "number" and v == math.floor(v) then return tostring(math.floor(v)) end
+    return tostring(v)
+  end))
+end
+
+function UI_.screen(name)
+  local sc = __screen(name)
+  if sc == nil then error(`UI.screen: no screen "{name}" (make it in the UI tab)`, 2) end
+  camera()
+  local clicked = nil
+  for _, e in sc.elements or {} do
+    if e.visible and e.visible ~= "" then
+      local v = lookup(e.visible)
+      if not v or v == 0 then continue end
+    end
+    local k = e.kind
+    if k == "panel" then
+      rect(e.x, e.y, e.w or 40, e.h or 20, e.bg or UI_.style.panel)
+      if e.border then rectline(e.x, e.y, e.w or 40, e.h or 20, e.border) end
+    elseif k == "text" then
+      Text.draw(fillText(e.text or ""), e.x, e.y, e.color or "#f4f4f4", { align = e.align, scale = e.scale, font = e.font, outline = e.outline })
+    elseif k == "sprite" and e.sprite then
+      local count = 1
+      if e["repeat"] and e["repeat"] ~= "" then count = math.max(0, math.floor(tonumber(lookup(e["repeat"])) or 0)) end
+      local info = sprite(e.sprite)
+      local step = ((info and info.w) or 8) * (e.scale or 1) + (e.gap or 1)
+      for i = 0, count - 1 do spr(e.sprite, e.x + i * step, e.y, { frame = e.frame, scale = e.scale }) end
+    elseif k == "bar" then
+      local value = tonumber(lookup(e.value or "0")) or 0
+      local max = tonumber(lookup(e.max or "1")) or 1
+      UI_.bar(e.x, e.y, e.w or 40, e.h or 6, value, max, e.color, { back = e.bg, border = e.border })
+    elseif k == "button" then
+      if UI_.button(fillText(e.text or "OK"), e.x, e.y, e.w or 50, e.h or 14) then clicked = e.id or e.text end
+    end
+  end
+  return clicked
+end
+
 -- ------------------------------------------------------------------ Path
 -- Finding the way around walls on a tile map (walls = tiles with flag bit 0, like Physics).
 --
@@ -1189,6 +1248,432 @@ function Path_.chase(b, tx, ty, speed, dt, map, o)
   -- don't overshoot a target that is closer than one step
   local step = math.min(speed * dt, math.sqrt((tx - cx) ^ 2 + (ty - cy) ^ 2))
   return Physics_.move(b, dx * step, dy * step, map, o and { solid = o.bit } or nil), true
+end
+
+-- ------------------------------------------------------------------ Save (slots)
+-- Several save slots, each a table of values, plus when it was saved and a label to show.
+--
+--   Save.use(2)                     -- the active slot (default 1)
+--   Save.set("level", "level3")     -- written at once
+--   Save.get("level", "level1")
+--   Save.label("Level 3 · 12 gems") -- shown on the slot screen
+--   Save.info(n) -> { time, label } or nil (empty)    Save.clear(n)
+
+local Save_ = { slot = 1, slots = 3 }
+Save = Save_
+
+local function slotData(n)
+  local d = load("slate.slot" .. n, nil)
+  return if type(d) == "table" then d else nil
+end
+
+function Save_.use(n) Save_.slot = n end
+
+function Save_.get(key, fallback)
+  local d = slotData(Save_.slot)
+  if d == nil or d.values == nil or d.values[key] == nil then return fallback end
+  return d.values[key]
+end
+
+function Save_.set(key, value)
+  local d = slotData(Save_.slot) or { values = {} }
+  d.values = d.values or {}
+  d.values[key] = value
+  d.time = now()
+  save("slate.slot" .. Save_.slot, d)
+end
+
+function Save_.label(text)
+  local d = slotData(Save_.slot) or { values = {} }
+  d.label = text
+  d.time = now()
+  save("slate.slot" .. Save_.slot, d)
+end
+
+function Save_.info(n)
+  local d = slotData(n or Save_.slot)
+  return if d then { time = d.time or 0, label = d.label or "" } else nil
+end
+
+function Save_.clear(n) wipe("slate.slot" .. (n or Save_.slot)) end
+
+-- "just now", "5 min ago", "3 h ago", "2 days ago"
+local function ago(t)
+  local s = math.max(0, now() - t)
+  if s < 60 then return "just now" end
+  if s < 3600 then return `{math.floor(s / 60)} min ago` end
+  if s < 86400 then return `{math.floor(s / 3600)} h ago` end
+  return `{math.floor(s / 86400)} days ago`
+end
+
+-- ------------------------------------------------------------------ settings + slot screens (UI)
+-- Settings are kept between runs (music / sound volume, fullscreen) and applied at start.
+
+local SETTINGS = "slate.settings"
+local function applySettings()
+  local s = load(SETTINGS, nil)
+  if type(s) ~= "table" then return end
+  if s.music then volume("music", s.music) end
+  if s.sfx then volume("sfx", s.sfx) end
+  if s.fullscreen ~= nil then fullscreen(s.fullscreen) end
+end
+local function keepSettings()
+  save(SETTINGS, { music = volume("music"), sfx = volume("sfx"), fullscreen = fullscreen() })
+end
+applySettings()
+
+-- the pause menu's changes are kept too
+for _, it in UI_.pause.menu.items do
+  if it.onChange then
+    local f = it.onChange
+    it.onChange = function(v)
+      f(v)
+      keepSettings()
+    end
+  end
+end
+
+-- A settings screen for title menus:  UI.settings.show()  then update() / draw() while open.
+UI_.settings = { open = false, title = "SETTINGS", controls = true }
+UI_.settings.menu = UI_.menu({
+  { id = "music", label = "Music", value = 1, min = 0, max = 1, step = 0.1, onChange = function(v) volume("music", v) keepSettings() end },
+  { id = "sfx", label = "Sound", value = 1, min = 0, max = 1, step = 0.1, onChange = function(v) volume("sfx", v) keepSettings() end },
+  { id = "fullscreen", label = "Fullscreen", toggle = true, value = false, onChange = function(v) fullscreen(v) keepSettings() end },
+  { id = "back", label = "Back" },
+})
+
+function UI_.settings.show()
+  local st = UI_.settings
+  st.open = true
+  st.menu.index = 1
+  for _, it in st.menu.items do
+    if it.id == "music" then it.value = volume("music") end
+    if it.id == "sfx" then it.value = volume("sfx") end
+    if it.id == "fullscreen" then it.value = fullscreen() end
+  end
+end
+
+-- returns true while open (skip the rest of your update)
+function UI_.settings.update()
+  local st = UI_.settings
+  if not st.open then return false end
+  local pick = st.menu:update()
+  if (pick and st.menu.items[pick].id == "back") or btnp("b") or btnp("start") then st.open = false end
+  return true
+end
+
+function UI_.settings.draw()
+  local st = UI_.settings
+  if not st.open then return end
+  camera()
+  rect(0, 0, W, H, "#0b0d1ac0")
+  local lh = texth(1, UI_.style.font) + 4
+  local n = #st.menu.items
+  local h = n * lh + 44 + (if st.controls then lh * 2 else 0)
+  local w = 180
+  local x0, y0 = W / 2 - w / 2, H / 2 - h / 2
+  UI_.panel(x0, y0, w, h)
+  text(st.title, W / 2, y0 + 8, UI_.style.selected, { font = UI_.style.font, align = "center" })
+  st.menu:draw(W / 2, y0 + 28)
+  if st.controls then
+    local cy = y0 + 32 + n * lh
+    text("move: arrows / WASD / pad", W / 2, cy, "#566c86", { font = UI_.style.font, align = "center" })
+    text("A: Z / Space    B: X", W / 2, cy + lh, "#566c86", { font = UI_.style.font, align = "center" })
+  end
+end
+
+-- A save slot screen:  UI.slots.show({ title = "LOAD", onPick = function(n, empty) ... end })
+UI_.slots = { open = false, title = "SAVE SLOTS", index = 1 }
+
+function UI_.slots.show(o)
+  o = o or {}
+  local sl = UI_.slots
+  sl.open, sl.index, sl.title, sl.onPick, sl.allowEmpty = true, Save_.slot, o.title or "SAVE SLOTS", o.onPick, o.allowEmpty ~= false
+end
+
+function UI_.slots.update()
+  local sl = UI_.slots
+  if not sl.open then return false end
+  local n = Save_.slots
+  if btnp("up") then sl.index = (sl.index - 2) % n + 1 sfx(UI_.style.sound, UI_.style.soundVolume) end
+  if btnp("down") then sl.index = sl.index % n + 1 sfx(UI_.style.sound, UI_.style.soundVolume) end
+  if btnp("b") or btnp("start") then sl.open = false return true end
+  local pick = nil
+  for i = 1, n do
+    local r = sl.rects and sl.rects[i]
+    if r and hit(r[1], r[2], r[3], r[4]) then
+      sl.index = i
+      if mouse.pressed then pick = i end
+    end
+  end
+  if btnp("a") then pick = sl.index end
+  if pick then
+    local empty = Save_.info(pick) == nil
+    if empty and not sl.allowEmpty then
+      sfx("error", 0.3)
+    else
+      Save_.use(pick)
+      sl.open = false
+      if sl.onPick then sl.onPick(pick, empty) end
+    end
+  end
+  return true
+end
+
+function UI_.slots.draw()
+  local sl = UI_.slots
+  if not sl.open then return end
+  camera()
+  rect(0, 0, W, H, "#0b0d1ac0")
+  local s = UI_.style
+  local lh = texth(1, s.font)
+  local rowH = lh * 2 + 8
+  local w = math.min(W - 20, 220)
+  local h = Save_.slots * (rowH + 4) + 30
+  local x0, y0 = W / 2 - w / 2, H / 2 - h / 2
+  UI_.panel(x0, y0, w, h)
+  text(sl.title, W / 2, y0 + 8, s.selected, { font = s.font, align = "center" })
+  sl.rects = {}
+  for i = 1, Save_.slots do
+    local y = y0 + 24 + (i - 1) * (rowH + 4)
+    local sel = i == sl.index
+    rect(x0 + 6, y, w - 12, rowH, if sel then "#333c57" else "#1a1c2c")
+    if sel then rectline(x0 + 6, y, w - 12, rowH, s.selected) end
+    sl.rects[i] = { x0 + 6, y, w - 12, rowH }
+    local info = Save_.info(i)
+    text(`SLOT {i}`, x0 + 12, y + 4, if sel then s.selected else s.text, { font = s.font })
+    if info then
+      text(if info.label ~= "" then info.label else "saved", x0 + 12, y + 5 + lh, "#f4f4f4", { font = s.font })
+      local a = ago(info.time)
+      text(a, x0 + w - 12 - textw(a, 1, s.font), y + 4, "#566c86", { font = s.font })
+    else
+      text("empty", x0 + 12, y + 5 + lh, "#566c86", { font = s.font })
+    end
+  end
+end
+
+-- (Actors, below, is declared first: Level loads a map's actors)
+local Actors_ = { list = {}, bullets = {}, collected = {}, view = "side", map = nil }
+Actors = Actors_
+
+-- ------------------------------------------------------------------ Level
+-- Moving between maps:  Level.player = hero (a box {x, y, w, h})
+--   Level.start("level1")          -- the first map (or the "Play from here" spot when testing)
+--   Level.go("cave", "entrance")   -- another map, at the object whose name (or type) is "entrance"
+--   Level.current                  -- the map name;  Level.onEnter = function(map) ... end
+-- Door objects (behavior=door, target=cave, to=entrance) call Level.go themselves.
+
+local Level_ = { current = nil, player = nil, onEnter = nil }
+Level = Level_
+
+local function spawnPoint(map, name)
+  for _, o in objects(map) do
+    if name and ((o.props and o.props.name == name) or o.name == name or o.type == name) then return o.x, o.y end
+  end
+  if name == nil then
+    for _, o in objects(map) do
+      if o.type == "start" or o.type == "player" or o.type == "spawn" then return o.x, o.y end
+    end
+  end
+  return nil
+end
+
+-- put the player's box with its feet at (x, y)
+local function place(x, y)
+  local p = Level_.player
+  if p and x then
+    p.x, p.y = x - (p.w or 0) / 2, y - (p.h or 0)
+    if p.vx then p.vx = 0 end
+    if p.vy then p.vy = 0 end
+  end
+end
+
+function Level_.go(map, spawn)
+  if mapinfo(map) == nil then error(`Level.go: no map "{map}"`, 2) end
+  Level_.current = map
+  Actors_.load(map)
+  place(spawnPoint(map, spawn))
+  if Level_.onEnter then Level_.onEnter(map) end
+end
+
+function Level_.start(map)
+  local pt = playtest()
+  if pt then
+    Level_.go(pt.map)
+    place(pt.x, pt.y)
+  else
+    Level_.go(map)
+  end
+end
+
+-- ------------------------------------------------------------------ Actors (behavior presets)
+-- Map objects with a behavior move by themselves; no code needed beyond:
+--   Actors.update(dt, player)   (player = {x, y, w, h, vy?}; omit it for no interaction)
+--   Actors.draw()               (inside Cam.apply())
+-- Behaviors (props of the object; values below are the defaults):
+--   patrol   walks and turns at walls and ledges       speed=30  gravity=500 (side view)
+--   chase    comes after the player when near          speed=40  range=120
+--   shoot    fires at the player when near             rate=1.5  range=150  bulletSpeed=100  bullet=(sprite)
+--   pickup   collected on touch (sfx "coin")            value=1  sound=coin
+--   hazard   hurts on touch
+--   door     takes the player to another map            target=map  to=spawn name  key=up (or none)
+--   bob      floats up and down (decoration)            height=3
+-- Events:  Actors.onPickup(actor)  Actors.onHurt(actor)  Actors.onStomp(actor)  Actors.onDoor(actor)
+--          Actors.collected[type] counts pickups.  Actors.view = "side" (gravity) or "top".
+
+
+local function num(o, k, d)
+  local v = o.props and o.props[k]
+  return tonumber(v) or d
+end
+
+function Actors_.load(map)
+  Actors_.list, Actors_.bullets, Actors_.map = {}, {}, map
+  for _, o in objects(map) do
+    local b = o.props and o.props.behavior
+    if b then
+      local info = o.sprite and sprite(o.sprite)
+      local box = if o.sprite then hitbox(o.sprite, 0, 0) else { x = 0, y = 0, w = 8, h = 8 }
+      local sw, sh = if info then info.w else 8, if info then info.h else 8
+      local a = {
+        obj = o, behavior = b, type = o.type, sprite = o.sprite, props = o.props or {},
+        -- the box the game collides with, from the sprite's hitbox
+        x = o.x - sw / 2 + box.x, y = o.y - sh + box.y, w = box.w, h = box.h, ox = box.x, oy = box.y,
+        vx = 0, vy = 0, dir = if (o.props.dir == "left") then -1 else 1, t = rnd(0, 1), cool = num(o, "rate", 1.5) * rnd(0.3, 1),
+        homeY = o.y - sh + box.y, alive = true,
+      }
+      if info and info.tags and info.tags.walk then a.anim = Anim.new(o.sprite, "walk")
+      elseif info and info.tags and info.tags.idle then a.anim = Anim.new(o.sprite, "idle") end
+      table.insert(Actors_.list, a)
+    end
+  end
+end
+
+local function solidAt(x, y) return Actors_.map and msolid(Actors_.map, x, y) end
+
+local function walk(a, dt, speed)
+  local map = Actors_.map
+  if Actors_.view == "side" then
+    a.vy = math.min(a.vy + num(a.obj, "gravity", 500) * dt, 400)
+    local hit = Physics_.move(a, a.dir * speed * dt, a.vy * dt, map)
+    if hit.down then a.vy = 0 end
+    -- turn at walls, and at ledges when standing
+    local ahead = if a.dir > 0 then a.x + a.w + 1 else a.x - 1
+    if hit.left or hit.right or (hit.down and not solidAt(ahead, a.y + a.h + 2)) then a.dir = -a.dir end
+  else
+    local hit = Physics_.move(a, a.dir * speed * dt, 0, map)
+    if hit.left or hit.right then a.dir = -a.dir end
+  end
+end
+
+local function hurtOrStomp(a, p)
+  -- side view: landing on top stomps it
+  if Actors_.view == "side" and (p.vy or 0) > 0 and p.y + p.h - (p.vy or 0) / 60 <= a.y + 3 and a.behavior ~= "hazard" then
+    if a.props.stomp ~= false then
+      a.alive = false
+      if Actors_.onStomp then Actors_.onStomp(a) end
+      return
+    end
+  end
+  if Actors_.onHurt then Actors_.onHurt(a) end
+end
+
+function Actors_.update(dt, player)
+  local p = player
+  for _, a in Actors_.list do
+    if not a.alive then continue end
+    a.t += dt
+    if a.anim then a.anim:update(dt) end
+    local b = a.behavior
+    local dx, dy, dist = 0, 0, math.huge
+    if p then
+      dx, dy = (p.x + p.w / 2) - (a.x + a.w / 2), (p.y + p.h / 2) - (a.y + a.h / 2)
+      dist = math.sqrt(dx * dx + dy * dy)
+    end
+    if b == "patrol" then
+      walk(a, dt, num(a.obj, "speed", 30))
+    elseif b == "chase" then
+      if p and dist < num(a.obj, "range", 120) then
+        if Actors_.view == "side" then
+          a.dir = if dx < 0 then -1 else 1
+          walk(a, dt, num(a.obj, "speed", 40))
+        else
+          Path.chase(a, p.x + p.w / 2, p.y + p.h / 2, num(a.obj, "speed", 40), dt, Actors_.map)
+          a.dir = if dx < 0 then -1 else 1
+        end
+      elseif Actors_.view == "side" then
+        walk(a, dt, 0)
+      end
+    elseif b == "shoot" then
+      a.cool -= dt
+      if p and dist < num(a.obj, "range", 150) and a.cool <= 0 then
+        a.cool = num(a.obj, "rate", 1.5)
+        local sp = num(a.obj, "bulletSpeed", 100)
+        table.insert(Actors_.bullets, { x = a.x + a.w / 2, y = a.y + a.h / 2, vx = dx / dist * sp, vy = dy / dist * sp, life = 4, sprite = a.props.bullet, from = a })
+        a.dir = if dx < 0 then -1 else 1
+      end
+    elseif b == "bob" then
+      a.y = a.homeY + math.sin(a.t * 3) * num(a.obj, "height", 3)
+    end
+    -- touching the player
+    if p and Physics_.overlap(a, p) then
+      if b == "pickup" then
+        a.alive = false
+        Actors_.collected[a.type] = (Actors_.collected[a.type] or 0) + num(a.obj, "value", 1)
+        sfx(a.props.sound or "coin", 0.5)
+        if Actors_.onPickup then Actors_.onPickup(a) end
+      elseif b == "door" then
+        local key = a.props.key or "up"
+        if key == "none" or btnp(key) then
+          if Actors_.onDoor then Actors_.onDoor(a) end
+          if a.props.target then
+            Level_.go(a.props.target, a.props.to)
+            return
+          end
+        end
+      elseif b == "patrol" or b == "chase" or b == "hazard" or b == "shoot" then
+        hurtOrStomp(a, p)
+      end
+    end
+  end
+  -- bullets
+  local keep = {}
+  for _, bl in Actors_.bullets do
+    bl.life -= dt
+    bl.x += bl.vx * dt
+    bl.y += bl.vy * dt
+    local gone = bl.life <= 0 or solidAt(bl.x, bl.y)
+    if not gone and p and bl.x > p.x and bl.x < p.x + p.w and bl.y > p.y and bl.y < p.y + p.h then
+      gone = true
+      if Actors_.onHurt then Actors_.onHurt(bl.from) end
+    end
+    if not gone then table.insert(keep, bl) end
+  end
+  Actors_.bullets = keep
+  -- forget the ones that are gone
+  local alive = {}
+  for _, a in Actors_.list do if a.alive then table.insert(alive, a) end end
+  Actors_.list = alive
+end
+
+function Actors_.draw()
+  for _, a in Actors_.list do
+    if a.sprite then
+      local x, y = a.x - a.ox, a.y - a.oy
+      local flip = a.dir < 0
+      if a.anim then a.anim:draw(x, y, { flipX = flip })
+      else spr(a.sprite, x, y, { flipX = flip, anim = nil, frame = math.floor(a.t * 6) % math.max(1, (sprite(a.sprite) or { frames = 1 }).frames) }) end
+    else
+      rect(a.x, a.y, a.w, a.h, "#ffcd75")
+    end
+  end
+  for _, bl in Actors_.bullets do
+    if bl.sprite then spr(bl.sprite, bl.x, bl.y, { ox = 0.5, oy = 0.5 })
+    else
+      circ(bl.x, bl.y, 2, "#ff7aa8", true)
+      circ(bl.x, bl.y, 1, "#ffffff", true)
+    end
+  end
 end
 
 -- ------------------------------------------------------------------ Fx

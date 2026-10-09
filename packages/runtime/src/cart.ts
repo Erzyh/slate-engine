@@ -126,6 +126,8 @@ export interface Cartridge {
   particles?: Record<string, ParticlePreset>;
   /** object templates (editor; instances are resolved before the game sees them) */
   templates?: Record<string, ObjectTemplate>;
+  /** UI screens made in the UI tab (HUDs, menus): drawn with UI.screen(name) */
+  screens?: Record<string, { elements: Record<string, unknown>[]; preview?: Record<string, string | number | boolean> }>;
 }
 
 /** Particle burst options (angles in radians), as Particles:burst takes them. */

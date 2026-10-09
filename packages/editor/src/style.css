@@ -623,3 +623,30 @@ select.dd-native { display: none !important; }
 .obj-templates .free { padding: 0 8px; }
 .obj-note { font-size: var(--fs-s); color: var(--text-3); line-height: 1.5; }
 .obj-note b { color: var(--accent); font-weight: 600; }
+
+/* timeline: dragging frames */
+#frame-list { position: relative; }
+#frame-list.dragging .frame { cursor: grabbing; }
+.frame-drop { position: absolute; top: 0; bottom: 0; width: 3px; border-radius: 2px; background: var(--accent); pointer-events: none; z-index: 3; }
+
+/* object type suggestions (from the game code and the maps) */
+.obj-hints { display: flex; flex-wrap: wrap; gap: 4px; margin-top: -2px; }
+.obj-hints:empty { display: none; }
+.obj-hints button { height: 22px; padding: 0 7px; font-size: var(--fs-s); background: var(--bg-1); border: 1px solid var(--line-2); color: var(--text-2); border-radius: 4px; }
+.obj-hints button:hover { color: var(--text); background: var(--bg-3); }
+.obj-hints .from-code { border-color: #5b8cf088; }
+
+/* UI tab */
+.ui-stage { position: relative; grid-area: 1 / 1; margin: 40px; box-shadow: 0 0 0 1px #0008, 0 8px 24px #0006; background: #000; }
+.ui-host, .ui-frame, #ui-overlay { position: absolute; inset: 0; width: 100%; height: 100%; border: none; display: block; }
+.ui-host { pointer-events: none; }
+#ui-overlay { z-index: 1; }
+.ui-props { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 12px 12px; }
+.ui-props .ui-field { display: flex; flex-direction: column; gap: 3px; width: 100%; font-size: var(--fs-s); color: var(--text-3); }
+.ui-props .ui-field.half { width: calc(50% - 4px); }
+.ui-props .ui-field input, .ui-props .ui-field select { height: 26px; font-size: var(--fs-m); }
+.ui-props .ui-field small { color: var(--text-3); line-height: 1.4; }
+.ui-props > button { margin-top: 4px; }
+.ui-kind { font-size: var(--fs-s); color: var(--text-3); width: 48px; flex: none; }
+.ui-preview-panel textarea { margin: 0 12px 12px; height: 70px; font-family: var(--mono); font-size: var(--fs-m); resize: vertical; }
+.side-panel:has(> .ui-props) { flex: none; }

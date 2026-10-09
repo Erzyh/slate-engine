@@ -46,6 +46,9 @@ const TOOL_HINT: Partial<Record<Tool, string>> = {
 /** frame thumbnail width + gap (tag bars line up with it) */
 const FRAME_STEP = 48;
 
+/** frames copied in the timeline: kept per layer, pasted into any sprite */
+let frameClipboard: { w: number; h: number; layers: ImageData[][]; durations: number[] } | null = null;
+
 function thumb(img: ImageData) {
   const c = document.createElement("canvas");
   c.width = img.width;
@@ -60,9 +63,13 @@ export class PixelPanels {
   private activeTag: number | null = null;
   private adjustSnap: EditSprite | null = null;
   private cursor: [number, number] | null = null;
+  /** the timeline was clicked last: Ctrl+C / X / V and Del work on frames */
+  framesFocused = false;
 
   constructor(private ed: PixelEditor, private hooks: PanelHooks) {
     this.wireToolbar();
+    // clicking the canvas gives Ctrl+C / V back to pixels
+    $("pixel-canvas").addEventListener("pointerdown", () => (this.framesFocused = false));
     ed.onZoom = () => this.updateZoom();
     this.wireColor();
     this.wireLayers();
@@ -391,7 +398,29 @@ export class PixelPanels {
       box.title = `Frame ${i + 1} · ${Math.round(s.frameMs(i))} ms${ms > 0 ? " (own time)" : ""}${tags.length ? ` · ${tags.join(", ")}` : ""}`;
       const num = Object.assign(document.createElement("span"), { className: "num", textContent: String(i + 1) });
       box.append(c, num);
+      box.addEventListener("pointerdown", (e) => this.frameDragStart(e, i));
+      box.oncontextmenu = (e) => {
+        e.preventDefault();
+        if (i < a || i > b || a === b) {
+          this.rangeFrom = this.rangeTo = i;
+          this.ed.frame = i;
+          this.ed.render();
+          this.renderFrames();
+        }
+        this.framesFocused = true;
+        const n = this.frameRange()[1] - this.frameRange()[0] + 1;
+        const many = n > 1 ? ` ${n} frames` : " frame";
+        popupMenu(e.clientX, e.clientY, [
+          { label: `Copy${many}`, key: "Ctrl+C", action: () => this.copyFrames() },
+          { label: `Cut${many}`, key: "Ctrl+X", action: () => this.copyFrames(true) },
+          { label: "Paste after", key: "Ctrl+V", disabled: !frameClipboard, action: () => this.pasteFrames() },
+          "-",
+          { label: `Duplicate${many}`, action: () => this.duplicateFrames() },
+          { label: `Delete${many}`, key: "Del", disabled: n >= (this.sprite?.frameCount ?? 0), action: () => this.deleteFrames() },
+        ]);
+      };
       box.onclick = (e) => {
+        this.framesFocused = true;
         this.ed.commitFloating();
         this.ed.stopPreview();
         if (e.shiftKey) this.rangeTo = i;
@@ -405,6 +434,132 @@ export class PixelPanels {
       };
       list.appendChild(box);
     }
+  }
+
+  /** The selected frames (the shift+click range, or just the current frame). */
+  private frameRange(): [number, number] {
+    const [a, b] = [Math.min(this.rangeFrom, this.rangeTo), Math.max(this.rangeFrom, this.rangeTo)];
+    const f = this.ed.frame;
+    return f >= a && f <= b ? [a, b] : [f, f];
+  }
+
+  /** Dragging a frame (or the selected range) to a new place in the timeline. */
+  private frameDragStart(e: PointerEvent, i: number) {
+    if (e.button !== 0 || e.shiftKey) return;
+    const s = this.sprite;
+    if (!s) return;
+    const list = $("frame-list");
+    const x0 = e.clientX;
+    let dragging = false;
+    let to = i;
+    const marker = document.createElement("div");
+    marker.className = "frame-drop";
+    const [ra, rb] = (() => {
+      const [a, b] = [Math.min(this.rangeFrom, this.rangeTo), Math.max(this.rangeFrom, this.rangeTo)];
+      return i >= a && i <= b ? [a, b] : [i, i];
+    })();
+    const move = (ev: PointerEvent) => {
+      if (!dragging && Math.abs(ev.clientX - x0) < 6) return;
+      if (!dragging) {
+        dragging = true;
+        list.classList.add("dragging");
+        list.appendChild(marker);
+      }
+      const r = list.getBoundingClientRect();
+      const slot = Math.max(0, Math.min(s.frameCount, Math.round((ev.clientX - r.left + list.scrollLeft) / FRAME_STEP)));
+      to = slot;
+      marker.style.left = `${slot * FRAME_STEP - 3}px`;
+      // keep the edge in view while dragging past it
+      if (ev.clientX > r.right - 20) list.scrollLeft += 12;
+      if (ev.clientX < r.left + 20) list.scrollLeft -= 12;
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      list.classList.remove("dragging");
+      marker.remove();
+      if (!dragging) return;
+      const n = rb - ra + 1;
+      // the slot counted with the dragged frames still in place
+      const dest = to > rb ? to - n : to;
+      if (dest === ra || (to >= ra && to <= rb + 1)) return;
+      this.structural((sp) => {
+        sp.moveFrames(ra, n, dest);
+        this.ed.frame = dest + (this.ed.frame - ra >= 0 && this.ed.frame <= rb ? this.ed.frame - ra : 0);
+      });
+      this.rangeFrom = dest;
+      this.rangeTo = dest + n - 1;
+      this.renderFrames();
+      this.hooks.status(n > 1 ? `Moved ${n} frames` : `Moved frame to ${dest + 1}`);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  }
+
+  copyFrames(cut = false) {
+    const s = this.sprite;
+    if (!s) return;
+    const [a, b] = this.frameRange();
+    frameClipboard = {
+      w: s.w,
+      h: s.h,
+      layers: s.layers.map((l) => l.cels.slice(a, b + 1).map(copyImage)),
+      durations: Array.from({ length: b - a + 1 }, (_, k) => s.durations[a + k] ?? 0),
+    };
+    if (cut && b - a + 1 < s.frameCount) this.deleteFrames();
+    this.hooks.status(`${cut ? "Cut" : "Copied"} ${b - a + 1} frame${b > a ? "s" : ""} · Ctrl+V pastes them after the current frame (in any sprite)`);
+  }
+
+  pasteFrames() {
+    const c = frameClipboard, s = this.sprite;
+    if (!c || !s) return;
+    const at = this.frameRange()[1] + 1;
+    const n = c.layers[0]?.length ?? 0;
+    this.structural((sp) => {
+      for (let k = 0; k < n; k++) {
+        sp.insertFrame(at + k);
+        sp.layers.forEach((l, li) => {
+          const src = c.layers[li]?.[k];
+          if (!src) return;
+          // another size: keep it centered
+          l.cels[at + k] = src.width === sp.w && src.height === sp.h ? copyImage(src) : canvasSize(src, sp.w, sp.h, Math.floor((sp.w - src.width) / 2), Math.floor((sp.h - src.height) / 2));
+        });
+        if (c.durations[k]) {
+          while (sp.durations.length < sp.frameCount) sp.durations.push(0);
+          sp.durations[at + k] = c.durations[k];
+        }
+      }
+      this.ed.frame = at;
+    });
+    this.rangeFrom = at;
+    this.rangeTo = at + n - 1;
+    this.renderFrames();
+    this.hooks.status(`Pasted ${n} frame${n > 1 ? "s" : ""}`);
+  }
+
+  private duplicateFrames() {
+    const [a, b] = this.frameRange();
+    const n = b - a + 1;
+    this.structural((sp) => {
+      for (let k = 0; k < n; k++) sp.insertFrame(b + 1 + k, a + k);
+      this.ed.frame = b + 1;
+    });
+    this.rangeFrom = b + 1;
+    this.rangeTo = b + n;
+    this.renderFrames();
+  }
+
+  private deleteFrames() {
+    const s = this.sprite;
+    if (!s) return;
+    const [a, b] = this.frameRange();
+    if (b - a + 1 >= s.frameCount) return;
+    this.structural((sp) => {
+      for (let k = b; k >= a; k--) sp.removeFrame(k);
+      this.ed.frame = Math.min(a, sp.frameCount - 1);
+    });
+    this.rangeFrom = this.rangeTo = this.ed.frame;
+    this.renderFrames();
   }
 
   private gotoFrame(i: number) {
@@ -752,6 +907,12 @@ export class PixelPanels {
       if (e.key === "Escape") this.closeAdjust(false);
       if (e.key === "Enter") this.closeAdjust(true);
       return true;
+    }
+    if (this.framesFocused) {
+      if (mod && k === "c") { this.copyFrames(); return true; }
+      if (mod && k === "x") { this.copyFrames(true); return true; }
+      if (mod && k === "v" && frameClipboard) { this.pasteFrames(); return true; }
+      if (!mod && (e.key === "Delete" || e.key === "Backspace")) { this.deleteFrames(); return true; }
     }
     if (mod) {
       if (k === "z") { this.command(e.shiftKey ? "redo" : "undo"); return true; }

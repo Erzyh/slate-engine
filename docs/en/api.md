@@ -30,6 +30,9 @@ end
 | Path finding | `Path.find` `Path.toward` `Path.chase` `Path.dist` (below) |
 | Screen effects | `Fx.flash` `Fx.fade` `Fx.freeze` `Fx.tint`, shaders `Fx.effect` `Fx.shockwave` `Fx.glitch` `Fx.shader` (below) |
 | Text effects | `Text.draw(s, x, y, c, {wave, shake, rainbow, typing...})`, `{wave}...{/}` inside the text (below) |
+| Screens | `UI.screen(name)` draws a screen made in the UI tab, `UI.settings`, `UI.slots` (below) |
+| Levels | `Level.start` `Level.go(map, spawn)`, behaviors on map objects with `Actors.update` / `Actors.draw` (below) |
+| Save slots | `Save.use(n)` `Save.get` `Save.set` `Save.label` `Save.info` `Save.clear` (below) |
 | Testing | `playtest()` → `{map, x, y}`: only set when the game was started with the editor's "Play from here" (below) |
 | Objects | `objects(map, type?)` → `{id, type, sprite, x, y, props, ...props}` (x, y = bottom center, in map pixels) |
 | Input | `btn(action)` `btnp(action)` `axis("x")` `bind(action, keys)` `pad()` (below), `key(name)` `keyp(name)` `mouse.x/.y/.down/.pressed/.released/.wheel` `hit(x, y, w, h)` |
@@ -139,6 +142,72 @@ UI.toast("Saved")                     -- a short notice, drawn by UI.draw()
 
 - While paused, `Timer`, `Tween`, camera shake and dialogs stop. The texts can be changed (`UI.pause.title = "Paused"`, `UI.pause.menu.items[1].label = "Resume"`).
 - All three templates already have a pause screen.
+
+```lua
+-- screens made in the editor's UI tab
+function draw()
+  ...
+  Cam.reset()
+  local clicked = UI.screen("hud")      -- returns a button's id in the frame it is clicked
+end
+
+-- a settings screen (music, sound, fullscreen; remembered between runs)
+UI.settings.show()
+if UI.settings.update() then return end   -- in update, while it is open
+UI.settings.draw()                         -- last in draw
+
+-- save slots
+UI.slots.show({ title = "LOAD", allowEmpty = false, onPick = function(n, empty) ... end })
+if UI.slots.update() then return end
+UI.slots.draw()
+```
+
+- Texts in a screen show game values: `{score}`, `{G.coins}` (globals, or fields of them).
+- The settings chosen in `UI.settings` or the pause screen are saved and applied the next time the game starts.
+
+### Save slots (`Save`)
+
+```lua
+Save.use(2)                          -- the slot to use (default 1; Save.slots = 3)
+Save.set("level", "level3")         -- written right away
+Save.get("level", "level1")         -- with a fallback
+Save.label("Level 3 · 12 gems")      -- shown on the slot screen
+Save.info(n)                         -- { time, label }, or nil when empty
+Save.clear(n)
+```
+
+## Levels, doors and behaviors
+
+```lua
+Level.player = hero                  -- a box {x, y, w, h}
+Level.start("level1")                -- the first map (the "Play from here" spot when testing)
+Level.go("cave", "entrance")         -- another map, at the object named (or typed) "entrance"
+Level.onEnter = function(map) ... end
+
+function update(dt)
+  Actors.update(dt, hero)             -- moves every object that has a behavior
+end
+function draw()
+  Cam.apply()
+  map(Level.current)
+  Actors.draw()
+end
+```
+
+Pick a behavior for an object in the Map tab (or set the prop `behavior`); the other props tune it.
+
+| Behavior | What it does | Props (defaults) |
+|---|---|---|
+| `patrol` | walks, turns at walls and ledges | `speed=30` `gravity=500` |
+| `chase` | comes after the player when near | `speed=40` `range=120` |
+| `shoot` | fires at the player when near | `rate=1.5` `range=150` `bulletSpeed=100` `bullet=(sprite)` |
+| `pickup` | collected on touch | `value=1` `sound=coin` |
+| `hazard` | hurts on touch | |
+| `door` | takes the player to another map | `target=(map)` `to=(spawn name)` `key=up` (or `none`) |
+| `bob` | floats up and down | `height=3` |
+
+- Events: `Actors.onPickup(a)`, `Actors.onHurt(a)`, `Actors.onStomp(a)` (landing on an enemy in side view), `Actors.onDoor(a)`. `Actors.collected[type]` counts pickups.
+- `Actors.view = "top"` for top-down games (no gravity, chasing goes around walls with `Path`); the default is `"side"`.
 
 ## Path finding (`Path`)
 
