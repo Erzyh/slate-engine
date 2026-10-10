@@ -1,11 +1,11 @@
 {
-  "version": "0.3.0",
-  "notes": "## 다운로드\n\n**`Slate_0.3.0_x64-setup.exe`**: Slate 에디터 설치 파일 (Windows 10/11). 이전 버전을 쓰고 있다면 에디터에서 바로 업데이트됩니다.\n\n## 새 기능\n\n**에디터**\n- UI 탭: HUD·타이틀·게임 오버 화면을 끌어다 배치 (패널, 텍스트, 스프라이트, 바, 버튼). 게임 값 표시 `{score}`, 하트처럼 반복되는 스프라이트, 미리보기\n- 프레임: 끌어서 순서 바꾸기, 복사·잘라내기·붙여넣기(다른 스프라이트로도), 우클릭 메뉴\n- 맵 에디터: 벽 도구(C)와 충돌 보기, 코드에서 찾은 오브젝트 종류 추천, 오브젝트 행동 고르기, 새 맵에 기본 타일셋\n\n**게임 코드**\n- `UI.screen(\"hud\")`: UI 탭에서 만든 화면 그리기\n- `Actors`: 맵 오브젝트에 행동(순찰, 추적, 사격, 아이템, 함정, 문, 둥실둥실)을 주면 코드 없이 움직임\n- `Level.go(map, spawn)`: 맵 이동, 문 오브젝트\n- `Save`: 저장 슬롯 3개, `UI.slots` 슬롯 화면\n- `UI.settings`: 설정 화면 (음량·전체 화면, 다음 실행에도 유지)\n\n**내보내기**\n- Android 앱 (.apk)\n- macOS / Linux 게임 (.zip)\n\n**문서**\n- 새 기능 영어/한국어 문서\n",
-  "pub_date": "2026-10-09T01:39:49.812Z",
+  "version": "0.4.0",
+  "notes": "## 다운로드\n\n**`Slate_0.4.0_x64-setup.exe`**: Slate 에디터 설치 파일 (Windows 10/11). 이전 버전을 쓰고 있다면 에디터에서 바로 업데이트됩니다.\n\n**`Slate_0.4.0_universal.dmg`**: macOS (Apple silicon / Intel). 서명되지 않은 앱이라 처음 실행할 때는 우클릭 → 열기.\n\n**`Slate_0.4.0_amd64.AppImage`** / **`.deb`**: Linux.\n\n## 새 기능\n\n**게임 코드**\n- 한글·영문이 섞인 줄이 한 기준선에 맞춰 그려집니다. `textsize(s)`로 크기를 재서 상자 가운데에 놓을 수 있고, `UI.button`도 정확히 가운데 정렬됩니다\n- `--!live`: 첫 줄에 이것을 적은 스크립트(밸런스 수치 등)는 저장하면 게임을 끄지 않고 바로 반영됩니다\n- 다국어: `lang/<언어>.json`과 `tr(\"key\")`, `lang()`, `langs()`. 언어가 둘 이상이면 설정 화면에 언어 선택이 생깁니다\n- 자동 테스트: `seed(n)`(같은 난수 반복), `quit(code)`, 최고 속도 실행\n- 터치: `mouse.long`(길게 누르기), `mouse.rpressed`(우클릭), `mouse.held`\n- 화면 채우기(`\"scale\"`): `pixel`(기본) / `fit`(화면에 맞춤) / `expand`(선명하게 유지하면서 여백 없이 채움)\n- `\"touchControls\": false`: 탭으로 하는 게임은 휴대폰 화면 방향키를 숨김\n\n**에디터**\n- UI 탭: 요소마다 기준점(모서리·변·가운데). 해상도를 바꿔도 그 자리에 붙어 있습니다\n- 언어 파일 만들기와 편집 (파일 목록 우클릭 → New language)\n- 프로젝트 설정에 화면 채우기 방식\n\n**명령줄**\n- `node tools/slate.mjs new / build / run --watch / test / export`: 에디터 없이 프로젝트 빌드·실행·테스트·내보내기 (Slate 폴더 밖 프로젝트도)\n\n**문서**\n- 새 기능 영어/한국어 문서\n",
+  "pub_date": "2026-10-10T14:13:05.335Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUOHlJQVB0eUo0dXNJNzhvdkhCRTBzTC8wQWtZL2p1S0x1TE1WbnV3S2dGY2p2TFR3MUZlT3g4bXVobDJsU0NyUmZyY255SWFNb25QbmtuMkdDMGNZcFU0U0dIaDFGRnc4PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkxNTA5OTg5CWZpbGU6U2xhdGVfMC4zLjBfeDY0LXNldHVwLmV4ZQl2ZXJzaW9uOjAuMy4wCmZYR3FnRUJSOTZBeWJiNG5GSUNLcEZxQVRQNEJiNXh1aXkzamlDaEk3L09BN3FFMkRqQS9RMCtkU0xTemwxSE1SNi9iZ0pwZUtqY3QxUmtpL0JVWEJRPT0K",
-      "url": "https://github.com/Erzyh/slate-engine/releases/download/v0.3.0/Slate_0.3.0_x64-setup.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUOHlJQVB0eUo0dWgrYjRpSk5tYmNVSTIzelkrODN2bkFnQ005dHBsZ1FtOTNRSmY1MWdDcU9ONm4zNFhVWUxnQmNBT04wUGpqNmJLbHdsaUpUTW8zVVhPUzlWZkp4bncwPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkxNjQxNTg1CWZpbGU6U2xhdGVfMC40LjBfeDY0LXNldHVwLmV4ZQl2ZXJzaW9uOjAuNC4wCisvSG5QYUsybWhGdWZjaGdlWFZvZFQ0bzFMUUNNYjBTSU1WZ0daQ1o2UitmdEFKL293R1ovMzAwUjNsWkl2MWw0a0Q5RHhicEtLai9wWmZkbUhIQkJRPT0K",
+      "url": "https://github.com/Erzyh/slate-engine/releases/download/v0.4.0/Slate_0.4.0_x64-setup.exe"
     }
   }
 }
