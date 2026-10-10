@@ -361,7 +361,7 @@ export class Project {
     const json = (o: unknown) => enc.encode(JSON.stringify(o, null, 2) + "\n");
     const files = new Map<string, Uint8Array>();
     const c = this.cart;
-    files.set(PROJECT_FILE, json({ name: c.name, title: c.title ?? c.name, resolution: c.resolution, background: c.background, main: c.main, ...(c.fullscreen ? { fullscreen: true } : {}), ...(c.palette?.length ? { palette: c.palette } : {}), ...(c.particles && Object.keys(c.particles).length ? { particles: c.particles } : {}), ...(c.templates && Object.keys(c.templates).length ? { templates: c.templates } : {}), ...(c.screens && Object.keys(c.screens).length ? { screens: c.screens } : {}) }));
+    files.set(PROJECT_FILE, json({ name: c.name, title: c.title ?? c.name, resolution: c.resolution, background: c.background, main: c.main, ...(c.fullscreen ? { fullscreen: true } : {}), ...(c.palette?.length ? { palette: c.palette } : {}), ...(c.particles && Object.keys(c.particles).length ? { particles: c.particles } : {}), ...(c.templates && Object.keys(c.templates).length ? { templates: c.templates } : {}), ...(c.screens && Object.keys(c.screens).length ? { screens: c.screens } : {}), ...(c.language ? { language: c.language } : {}), ...(c.touchControls === false ? { touchControls: false } : {}), ...(c.scale && c.scale !== "pixel" ? { scale: c.scale } : {}) }));
     for (const [path, src] of Object.entries(this.scripts)) files.set(path, enc.encode(src));
     for (const s of this.sprites) {
       const base = `${s.folder}/${s.name}`;

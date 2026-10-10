@@ -11,6 +11,10 @@ use mlua::{Function, Table, UserData, UserDataFields, Value};
 
 pub struct Script {
     _lua: Lua,
+    /// require()'s cache: path -> what the script returned (live scripts are patched in place)
+    loaded: Table,
+    /// the text of each `--!live` script as last run
+    live: std::cell::RefCell<std::collections::BTreeMap<String, String>>,
     init: Option<Function>,
     update: Option<Function>,
     draw: Option<Function>,
@@ -31,6 +35,9 @@ impl UserData for MouseRef {
         f.add_field_method_get("pressed", |_, m| Ok(m.0.borrow().input.pressed));
         f.add_field_method_get("released", |_, m| Ok(m.0.borrow().input.released));
         f.add_field_method_get("right", |_, m| Ok(m.0.borrow().input.right));
+        f.add_field_method_get("rpressed", |_, m| Ok(m.0.borrow().input.rpressed));
+        f.add_field_method_get("long", |_, m| Ok(m.0.borrow().input.long));
+        f.add_field_method_get("held", |_, m| Ok(m.0.borrow().input.held));
         f.add_field_method_get("wheel", |_, m| Ok(m.0.borrow().input.wheel));
         f.add_field_method_get("inside", |_, m| Ok(m.0.borrow().input.inside));
     }
@@ -79,12 +86,52 @@ impl Script {
         }
         // the standard library (Anim, ...), then the main script; other scripts load with require()
         lua.load(include_str!("std.luau")).set_name("@slate/std.luau").exec().map_err(clean_error)?;
-        let require = make_require(&lua, src).map_err(|e| e.to_string())?;
+        let loaded = lua.create_table().map_err(|e| e.to_string())?;
+        let require = make_require(&lua, src, loaded.clone()).map_err(|e| e.to_string())?;
         g.set("require", require.clone()).map_err(|e| e.to_string())?;
         require.call::<Value>(src.main.clone()).map_err(clean_error)?;
         let g = lua.globals();
         let get = |n: &str| g.get::<Option<Function>>(n).ok().flatten();
-        Ok(Script { init: get("init"), update: get("update"), draw: get("draw"), tick: get("__slate_tick"), post: get("__slate_post"), _lua: lua })
+        let live = src.files.iter().filter(|(_, t)| is_live(t)).map(|(p, t)| (p.clone(), t.clone())).collect();
+        Ok(Script {
+            init: get("init"),
+            update: get("update"),
+            draw: get("draw"),
+            tick: get("__slate_tick"),
+            post: get("__slate_post"),
+            loaded,
+            live: std::cell::RefCell::new(live),
+            _lua: lua,
+        })
+    }
+
+    /// Scripts that start with `--!live` change while the game runs: the new version runs and what it
+    /// returns is merged into the table the game already holds (numbers, strings, functions, nested
+    /// tables), so `local D = require("data")` sees new values at once. Other scripts restart the game.
+    pub fn live_update(&self, src: &Sources) -> Result<usize, String> {
+        let mut n = 0;
+        for (path, text) in &src.files {
+            if !is_live(text) || self.live.borrow().get(path) == Some(text) {
+                continue;
+            }
+            self.live.borrow_mut().insert(path.clone(), text.clone());
+            let old: Value = self.loaded.get(path.as_str()).map_err(|e| e.to_string())?;
+            let Value::Table(old) = old else { continue };
+            let out: mlua::MultiValue = self._lua.load(text.as_str()).set_name(format!("@{path}")).call(()).map_err(clean_error)?;
+            if let Some(Value::Table(new)) = out.into_iter().next() {
+                let merge: Function = self._lua.globals().get("__slate_merge").map_err(|e| e.to_string())?;
+                merge.call::<()>((old, new)).map_err(clean_error)?;
+                n += 1;
+            }
+        }
+        Ok(n)
+    }
+
+    /// The game image size changed (scale = "expand"): new W and H for the game.
+    pub fn set_size(&self, w: u32, h: u32) {
+        let g = self._lua.globals();
+        let _ = g.set("W", w);
+        let _ = g.set("H", h);
     }
 
     pub fn init(&self) -> Result<(), String> {
@@ -132,17 +179,26 @@ impl Sources {
         Sources { main: c.main.clone().unwrap_or_else(|| "scripts/main.luau".into()), files: c.scripts.clone() }
     }
 
-    /// Identity of the code, to tell whether a reload needs a restart.
+    /// Identity of the code, to tell whether a reload needs a restart (`--!live` scripts don't count:
+    /// they are patched into the running game).
     pub fn key(&self) -> String {
         let mut k = self.main.clone();
         for (p, s) in &self.files {
             k.push('\0');
             k.push_str(p);
             k.push('\0');
-            k.push_str(s);
+            // live scripts are patched in; lang/*.json texts are swapped in (tr() reads them)
+            if !is_live(s) && !p.starts_with("lang/") {
+                k.push_str(s);
+            }
         }
         k
     }
+}
+
+/// A script whose first line is `--!live` (data and tuning tables).
+fn is_live(text: &str) -> bool {
+    text.trim_start_matches('\u{feff}').starts_with("--!live")
 }
 
 /// "enemies/beetle", "./util", "../lib/vec" -> a path in `files` ("scripts/enemies/beetle.luau").
@@ -166,9 +222,8 @@ fn resolve(files: &std::collections::BTreeMap<String, String>, from: &str, name:
 }
 
 /// require(name): runs a project script once and returns (and caches) what it returns.
-fn make_require(lua: &Lua, src: &Sources) -> LuaResult<Function> {
+fn make_require(lua: &Lua, src: &Sources, loaded: Table) -> LuaResult<Function> {
     let files = std::rc::Rc::new(src.files.clone());
-    let loaded = lua.create_table()?;
     let loading = lua.create_table()?;
     lua.create_function(move |lua, name: String| {
         let caller = lua
@@ -342,6 +397,24 @@ fn register(lua: &Lua, eng: &Shared) -> LuaResult<()> {
             None => e.gfx.font,
         };
         Ok(e.gfx.wrap_in(f, &s, width, scale.unwrap_or(1.0)))
+    });
+    // textsize(s, scale?, font?) -> w, h: the size of the drawn text (for centering it in a box)
+    func!("textsize", |e, l, (s, scale, font): (Value, Option<f32>, Option<String>)| {
+        let s = l.coerce_string(s)?.map(|s| s.to_string_lossy()).unwrap_or_default();
+        let f = match font {
+            Some(n) => crate::bitfont::id_of(&n).ok_or_else(|| LuaError::RuntimeError(format!("textsize: no font \"{n}\"")))?,
+            None => e.gfx.font,
+        };
+        let sc = scale.unwrap_or(1.0);
+        Ok((e.gfx.text_width_in(f, &s, sc), e.gfx.text_height(f, &s, sc)))
+    });
+    // __textdrop(font?) -> how far classic letters drop on a line with Hangul (Text.draw draws letter by letter)
+    func!("__textdrop", |e, _l, font: Option<String>| {
+        let f = match font {
+            Some(n) => crate::bitfont::id_of(&n).unwrap_or(e.gfx.font),
+            None => e.gfx.font,
+        };
+        Ok(e.gfx.line_drop(f, "\u{AC00}"))
     });
     // texth(scale?, font?) -> height of one line of text
     func!("texth", |e, _l, (scale, font): (Option<f32>, Option<String>)| {
@@ -568,6 +641,9 @@ fn register(lua: &Lua, eng: &Shared) -> LuaResult<()> {
         Some(v) => l.to_value(v),
         None => Ok(Value::Nil),
     });
+    func!("__strings", |e, l, (): ()| l.to_value(&e.strings));
+    func!("__strings_version", |e, _l, (): ()| Ok(e.strings_version));
+    func!("__lang_default", |e, _l, (): ()| Ok(e.language.clone()));
     func!("__particle_preset", |e, l, name: String| match e.particles.get(&name) {
         Some(v) => l.to_value(v),
         None => Ok(Value::Nil),
@@ -596,6 +672,16 @@ fn register(lua: &Lua, eng: &Shared) -> LuaResult<()> {
             (Some(a), None) => r * a,
             _ => r,
         })
+    });
+    // seed(n): the same n gives the same rnd() / irnd() / pick() sequence (replays, tests)
+    func!("seed", |e, _l, n: f64| {
+        e.rng = (n as i64 as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1;
+        Ok(())
+    });
+    // quit(code?): close the game (desktop; ignored on the web). Tests end themselves with it.
+    func!("quit", |e, _l, code: Option<i32>| {
+        e.quit = Some(code.unwrap_or(0));
+        Ok(())
     });
     func!("irnd", |e, _l, (a, b): (f64, f64)| Ok((a + e.random() * (b - a + 1.0)).floor()));
     func!("pick", |e, _l, t: Table| {

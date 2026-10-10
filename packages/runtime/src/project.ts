@@ -10,6 +10,7 @@
 //   maps/**/NAME.json     tile maps (tiles + placed objects)
 //   music/**/NAME.ogg     music(name)      (.ogg or .wav)
 //   sounds/**/NAME.wav    sfx(name)        (.wav or .ogg)
+//   lang/CODE.json        texts for tr("key") in that language (kept with the scripts)
 //
 // packProject() turns the files into a single cartridge for the player and for exports.
 
@@ -31,6 +32,12 @@ export interface ProjectSettings {
   templates?: Cartridge["templates"];
   /** UI screens */
   screens?: Cartridge["screens"];
+  /** the first language for tr() (a lang/CODE.json) */
+  language?: string;
+  /** false: no on-screen d-pad / buttons on phones (games played by tapping) */
+  touchControls?: boolean;
+  /** how the game fills the window: "pixel" (default, whole-number scale), "fit", "expand" (W / H grow) */
+  scale?: "pixel" | "fit" | "expand";
 }
 
 /** Settings stored next to a sprite's PNG (sprites/NAME.json). */
@@ -53,7 +60,7 @@ export interface SpriteMeta {
 }
 
 export const PROJECT_FILE = "slate.json";
-export const FOLDERS = ["scripts", "sprites", "maps", "music", "sounds"] as const;
+export const FOLDERS = ["scripts", "sprites", "maps", "music", "sounds", "lang"] as const;
 
 const dec = new TextDecoder();
 
@@ -106,6 +113,9 @@ export function packProject(files: Map<string, Uint8Array>): Cartridge {
   if (settings.particles && Object.keys(settings.particles).length) cart.particles = settings.particles;
   if (settings.templates && Object.keys(settings.templates).length) cart.templates = settings.templates;
   if (settings.screens && Object.keys(settings.screens).length) cart.screens = settings.screens;
+  if (settings.language) cart.language = settings.language;
+  if (settings.touchControls === false) cart.touchControls = false;
+  if (settings.scale && settings.scale !== "pixel") cart.scale = settings.scale;
   const folderOf = (kind: string, name: string, path: string) => {
     const dir = path.slice(0, path.lastIndexOf("/"));
     if (dir !== kind) cart.folders![`${kind}:${name}`] = dir;
@@ -121,7 +131,7 @@ export function packProject(files: Map<string, Uint8Array>): Cartridge {
     const bytes = files.get(path)!;
     const [top] = path.split("/");
     const ext = extOf(path);
-    if (top === "scripts" && (ext === "luau" || ext === "lua")) {
+    if ((top === "scripts" && (ext === "luau" || ext === "lua")) || (top === "lang" && ext === "json")) {
       cart.scripts![path] = text(bytes);
     } else if (top === "sprites" && ext === "png" && !path.endsWith(".layers.png")) {
       const name = baseName(path);

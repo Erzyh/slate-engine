@@ -12,6 +12,8 @@ use std::rc::Rc;
 pub type Shared = Rc<RefCell<Engine>>;
 
 pub struct Engine {
+    /// set by quit(code)
+    pub quit: Option<i32>,
     pub gfx: Gfx,
     pub input: Input,
     pub mixer: Mixer,
@@ -25,7 +27,7 @@ pub struct Engine {
     pub bindings: HashMap<String, Vec<String>>,
     /// window mode the game wants; the frame loop applies changes
     pub fullscreen: bool,
-    rng: u64,
+    pub rng: u64,
     save_dir: PathBuf,
     /// bumps whenever map tiles change (path caches compare it)
     pub map_version: u64,
@@ -38,6 +40,10 @@ pub struct Engine {
     pub particles: HashMap<String, serde_json::Value>,
     /// UI screens (UI.screen)
     pub screens: HashMap<String, serde_json::Value>,
+    /// lang/*.json: code -> flat { key: text }, and its version (bumps when the editor changes them)
+    pub strings: HashMap<String, serde_json::Value>,
+    pub strings_version: u32,
+    pub language: Option<String>,
 }
 
 /// Default actions: arrows / WASD / d-pad / left stick to move, A B X Y like a gamepad.
@@ -63,7 +69,13 @@ impl Engine {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_nanos() as u64)
             .unwrap_or(1);
+        // SLATE_SEED=n: a fixed random sequence from the start (tests)
+        let seed = std::env::var("SLATE_SEED").ok().and_then(|v| v.parse::<i64>().ok()).map(|n| (n as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15)).unwrap_or(seed);
         Engine {
+            quit: None,
+            strings: HashMap::new(),
+            strings_version: 0,
+            language: None,
             gfx,
             input: Input::default(),
             mixer: Mixer::new(),
@@ -279,7 +291,20 @@ pub struct Input {
     pub pressed: bool,
     pub released: bool,
     pub right: bool,
+    /// right button pressed this tick (desktop right click)
+    pub rpressed: bool,
+    /// a long press: held 0.5 s without moving (touch screens: the right click), once per hold
+    pub long: bool,
+    /// seconds the left button / finger has been held (0 when up)
+    pub held: f32,
     pub wheel: f32,
+    press_at: f64,
+    press_pos: (f32, f32),
+    long_done: bool,
+    pending_long: bool,
+    frame_long: bool,
+    pending_rpress: bool,
+    frame_rpress: bool,
     pressed_keys: HashSet<KeyCode>,
     pending_press: bool,
     pending_release: bool,
@@ -351,6 +376,27 @@ impl Input {
         self.right = is_mouse_button_down(MouseButton::Right);
         self.pending_press |= is_mouse_button_pressed(MouseButton::Left);
         self.pending_release |= is_mouse_button_released(MouseButton::Left);
+        self.pending_rpress |= is_mouse_button_pressed(MouseButton::Right);
+        // long press: held still for half a second
+        let now = get_time();
+        if is_mouse_button_pressed(MouseButton::Left) {
+            self.press_at = now;
+            self.press_pos = (self.mx, self.my);
+            self.long_done = false;
+        }
+        if self.down {
+            self.held = (now - self.press_at) as f32;
+            let moved = (self.mx - self.press_pos.0).abs().max((self.my - self.press_pos.1).abs()) > 4.0;
+            if moved {
+                self.long_done = true;
+            }
+            if !self.long_done && self.held >= 0.5 {
+                self.long_done = true;
+                self.pending_long = true;
+            }
+        } else {
+            self.held = 0.0;
+        }
         self.pending_wheel += mouse_wheel().1.signum();
         self.pressed_keys.extend(get_keys_pressed());
     }
@@ -360,6 +406,10 @@ impl Input {
         self.pressed = std::mem::take(&mut self.pending_press);
         self.released = std::mem::take(&mut self.pending_release);
         self.wheel = std::mem::take(&mut self.pending_wheel);
+        self.long = std::mem::take(&mut self.pending_long);
+        self.rpressed = std::mem::take(&mut self.pending_rpress);
+        self.frame_long |= self.long;
+        self.frame_rpress |= self.rpressed;
         self.frame_press |= self.pressed;
         self.frame_release |= self.released;
         self.frame_wheel += self.wheel;
@@ -370,17 +420,23 @@ impl Input {
         self.pressed = std::mem::take(&mut self.frame_press);
         self.released = std::mem::take(&mut self.frame_release);
         self.wheel = std::mem::take(&mut self.frame_wheel);
+        self.long = std::mem::take(&mut self.frame_long);
+        self.rpressed = std::mem::take(&mut self.frame_rpress);
     }
 
     pub fn end_draw(&mut self) {
         self.pressed = false;
         self.released = false;
+        self.long = false;
+        self.rpressed = false;
         self.wheel = 0.0;
     }
 
     pub fn end_tick(&mut self) {
         self.pressed = false;
         self.released = false;
+        self.long = false;
+        self.rpressed = false;
         self.wheel = 0.0;
         self.pressed_keys.clear();
         self.script_pressed.clear();

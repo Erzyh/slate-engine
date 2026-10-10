@@ -33,6 +33,8 @@ export interface UiElement {
   value?: string;
   max?: string;
   visible?: string;
+  /** where x, y are measured from: tl t tr l c r bl b br (default tl) */
+  anchor?: string;
 }
 
 export interface UiScreen {
@@ -49,6 +51,15 @@ export interface UiHooks {
 }
 
 const RESIZABLE: UiKind[] = ["panel", "bar", "button"];
+const ANCHORS: [string, string][] = [["tl", "Top left"], ["t", "Top"], ["tr", "Top right"], ["l", "Left"], ["c", "Center"], ["r", "Right"], ["bl", "Bottom left"], ["b", "Bottom"], ["br", "Bottom right"]];
+
+/** The point an anchor stands for on a w x h screen. */
+export function anchorPoint(anchor: string | undefined, w: number, h: number): [number, number] {
+  const a = anchor ?? "tl";
+  const fx = a.includes("r") ? 1 : a.includes("l") ? 0 : 0.5;
+  const fy = a[0] === "b" ? 1 : a[0] === "t" ? 0 : 0.5;
+  return [fx * w, fy * h];
+}
 const DEFAULTS: Record<UiKind, Partial<UiElement>> = {
   text: { text: "SCORE {G.score}", color: "#f4f4f4", align: "left" },
   sprite: { frame: 0 },
@@ -228,6 +239,9 @@ end
 
   /** An element's box in game pixels (text is measured roughly: the preview shows the real thing). */
   private box(e: UiElement) {
+    const [W, H] = this.project?.cart.resolution ?? [320, 180];
+    const [ax, ay] = anchorPoint(e.anchor, W, H);
+    const ex = e.x + ax, ey = e.y + ay;
     const sc = e.scale ?? 1;
     if (e.kind === "text") {
       const t = (e.text ?? "").replace(/\{[^}]*\}/g, "000");
@@ -236,16 +250,16 @@ end
       for (const ch of t) w += ch.charCodeAt(0) > 127 || erx ? 12 : ch === " " ? 3 : 6;
       w *= sc;
       const h = (erx ? 12 : 8) * sc;
-      const x = e.align === "center" ? e.x - w / 2 : e.align === "right" ? e.x - w : e.x;
-      return { x, y: e.y, w: Math.max(4, w), h };
+      const x = e.align === "center" ? ex - w / 2 : e.align === "right" ? ex - w : ex;
+      return { x, y: ey, w: Math.max(4, w), h };
     }
     if (e.kind === "sprite") {
       const s = e.sprite ? this.project?.get(e.sprite) : null;
       const sw = (s?.w ?? 8) * sc, sh = (s?.h ?? 8) * sc;
       const n = Math.max(1, Number(this.cur?.preview?.[e.repeat ?? ""] ?? 1) || 1);
-      return { x: e.x, y: e.y, w: n * sw + (n - 1) * (e.gap ?? 1), h: sh };
+      return { x: ex, y: ey, w: n * sw + (n - 1) * (e.gap ?? 1), h: sh };
     }
-    return { x: e.x, y: e.y, w: e.w ?? 40, h: e.h ?? 10 };
+    return { x: ex, y: ey, w: e.w ?? 40, h: e.h ?? 10 };
   }
 
   private draw() {
@@ -481,6 +495,30 @@ end
       box.appendChild(wrap);
     };
     field("Name", "id", "text", { hint: e.kind === "button" ? "UI.screen() returns it when clicked" : undefined });
+    {
+      const wrap = document.createElement("label");
+      wrap.className = "ui-field";
+      wrap.append(Object.assign(document.createElement("span"), { textContent: "Anchor" }));
+      const sel = document.createElement("select");
+      for (const [v, l] of ANCHORS) sel.appendChild(Object.assign(document.createElement("option"), { value: v, textContent: l }));
+      sel.value = e.anchor ?? "tl";
+      sel.onchange = () => {
+        this.snapshot();
+        const [W, H] = this.project?.cart.resolution ?? [320, 180];
+        const [ox, oy] = anchorPoint(e.anchor, W, H);
+        const [nx, ny] = anchorPoint(sel.value, W, H);
+        // stay in place: only what x, y are measured from changes
+        e.x += ox - nx;
+        e.y += oy - ny;
+        if (sel.value === "tl") delete e.anchor;
+        else e.anchor = sel.value;
+        this.renderProps();
+        this.changed();
+      };
+      wrap.appendChild(sel);
+      wrap.append(Object.assign(document.createElement("small"), { textContent: "stays at that corner / edge if the resolution changes" }));
+      box.appendChild(wrap);
+    }
     field("X", "x", "number", { half: true });
     field("Y", "y", "number", { half: true });
     if (RESIZABLE.includes(e.kind)) {

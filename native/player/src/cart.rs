@@ -138,6 +138,12 @@ pub struct Cartridge {
     /// "luau" (native) or "js" (legacy web runtime)
     #[serde(default)]
     pub lang: Option<String>,
+    /// the game's first language for tr() (slate.json "language"), e.g. "ko"
+    #[serde(default)]
+    pub language: Option<String>,
+    /// "pixel" (default), "fit" or "expand": how the game fills the window (slate.json "scale")
+    #[serde(default)]
+    pub scale: Option<String>,
     /// music tracks: name -> `data:audio/ogg;base64,...` (OGG Vorbis or WAV)
     #[serde(default)]
     pub music: std::collections::HashMap<String, String>,
@@ -272,4 +278,35 @@ pub fn decode_frame(data_url: &str) -> Result<Image, String> {
         png::ColorType::Indexed => return Err("indexed png not expanded".into()),
     };
     Ok(Image { w, h, rgba })
+}
+
+/// The text tables of lang/*.json (kept with the scripts): code -> { "dotted.key": "text" }.
+pub fn strings(c: &Cartridge) -> std::collections::HashMap<String, serde_json::Value> {
+    fn flat(prefix: &str, v: &serde_json::Value, out: &mut serde_json::Map<String, serde_json::Value>) {
+        match v {
+            serde_json::Value::Object(m) => {
+                for (k, v) in m {
+                    let key = if prefix.is_empty() { k.clone() } else { format!("{prefix}.{k}") };
+                    flat(&key, v, out);
+                }
+            }
+            serde_json::Value::String(_) => {
+                out.insert(prefix.to_string(), v.clone());
+            }
+            other => {
+                out.insert(prefix.to_string(), serde_json::Value::String(other.to_string()));
+            }
+        }
+    }
+    let mut all = std::collections::HashMap::new();
+    for (path, text) in &c.scripts {
+        let Some(name) = path.strip_prefix("lang/").and_then(|p| p.strip_suffix(".json")) else { continue };
+        let code = name.rsplit('/').next().unwrap_or(name).to_string();
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(text) {
+            let mut m = serde_json::Map::new();
+            flat("", &v, &mut m);
+            all.insert(code, serde_json::Value::Object(m));
+        }
+    }
+    all
 }

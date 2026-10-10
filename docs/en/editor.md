@@ -26,6 +26,8 @@ my-game/
 - Files deleted in the editor move to `.slate-trash/` inside the project when you save (nothing is deleted right away).
 - A `.slate` file = the whole project as one cartridge (examples, sharing, running). Open one with File > Import.
 - `slate.json` also keeps the project palette, particle presets and object templates.
+- **Filling the screen** (Project settings, `"scale"` in `slate.json`): `"pixel"` (default) scales by whole numbers, so the image stays sharp but can have black borders; `"fit"` fills the screen at any scale; `"expand"` stays sharp and grows the game image to fill the screen, so `W` and `H` can be bigger than the resolution (draw relative to them, or center a stage of the base size in them).
+- `"touchControls": false` hides the on-screen d-pad and buttons on phones, for games played by tapping.
 
 ## The window
 
@@ -85,6 +87,7 @@ The UI tab lays out screens (a HUD, a title menu, a game over screen) that the g
 - Add elements from the toolbar: **panel** (a box), **text**, **sprite**, **bar**, **button**. Drag to move, drag the corner handle to resize. Arrow keys move 1 px (Shift: 8), `Ctrl+D` duplicates, `Del` deletes, `Ctrl+Z` undoes.
 - Game values: in a text write `{score}` or `{G.coins}` and the current value is shown. A sprite's **Repeat** draws it that many times (`hp` → one heart per hit point). A bar fills by **Value** / **Max** (`hp`, `maxHp`). **Visible** hides an element while that value is false or 0.
 - Buttons have an **id**: `UI.screen("title")` returns it in the frame the button is clicked.
+- **Anchor**: the corner, edge or center an element's X / Y are measured from. A score in the top right with the Top right anchor stays there when the resolution changes.
 - **Preview values**: one `name=value` per line (`G.score=1200`) to see how the screen looks with them (they aren't saved into the game).
 
 ## Particle editor
@@ -127,12 +130,29 @@ Open them from the Examples menu.
 | `games/jelly` | **Jelly Jump**: a platformer. All pixel art designed by hand. The jelly squashes, stretches and wobbles from a single sprite in code; the beetle has a 2-frame walk (`Anim`). 7 module-style scripts. Dev keys: F2 flag, F8 autopilot |
 | `games/star-barrage` | **Star Barrage**: a vertical bullet-hell shooter. 5 stages + an endless loop, 10 bosses (31 phases), 17 bullet patterns, 16 permanent upgrades, a 10-track soundtrack (Slate Synth). Stages = objects on the maps `stage1`–`5`. Dev keys F2 / F3 / F4 / F6 (see `scripts/data.luau`) |
 
+## Languages
+
+Right click the file list → **New language** makes `lang/<code>.json` (a copy of the first language, to translate). Edit it in the Code tab; `tr("key")` shows the text in the player's language ([API](api.md#languages)).
+
+## Command line
+
+Build, play and test projects without the editor (any folder with a `slate.json`, also outside the Slate folder):
+
+```
+node <slate>/tools/slate.mjs new my-game --template topdown
+node <slate>/tools/slate.mjs run my-game --watch      # edits in any editor reach the running game
+node <slate>/tools/slate.mjs test my-game --script tests/balance.luau
+node <slate>/tools/slate.mjs export my-game --exe     # my-game/build/<Title>.exe
+```
+
+Inside the Slate folder `npx slate ...` works too.
+
 ## Exporting for macOS, Linux and Android
 
 - **macOS game (.zip)**: unzip it; the `.app` is the game. It isn't signed by Apple, so the first launch is right click → Open.
 - **Linux game (.zip)**: unzip it and run the program inside (`game.slate` must stay next to it).
 - macOS and Linux export need the player for that system: the macOS and Linux builds of Slate carry all three players; in a build without them the items are greyed out.
-- **Android app (.apk)**: a phone app with the web player inside. Copy it to the phone and open it to install (allow installing from that app the first time). Tall resolutions (taller than wide) lock to portrait, others to landscape. The on-screen d-pad and buttons appear on touch screens.
+- **Android app (.apk)**: a phone app with the web player inside. Copy it to the phone and open it to install (allow installing from that app the first time). Tall resolutions (taller than wide) lock to portrait, others to landscape. The on-screen d-pad and buttons appear on touch screens; a long press is `mouse.long` (the right click of a phone).
 - The app is signed with a key Slate makes once in `~/.slate/` (`android-signing-key.der`). **Keep a copy**: a newer version of the app installs over the old one only when it is signed with the same key. The package name is `dev.slate.game.<save name>`.
 
 ## Exporting a web game (itch.io)

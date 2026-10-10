@@ -114,6 +114,12 @@ export interface Cartridge {
   folders?: Record<string, string>;
   /** "luau" runs on the native player; "js" (or missing) is the legacy web runtime. */
   lang?: "luau" | "js";
+  /** the first language for tr() (slate.json "language") */
+  language?: string;
+  /** false: no on-screen d-pad / buttons on phones */
+  touchControls?: boolean;
+  /** "pixel" (default), "fit", "expand" */
+  scale?: "pixel" | "fit" | "expand";
   /** music tracks: name -> data URL (OGG Vorbis or WAV), played with music(name) */
   music?: Record<string, string>;
   /** start in fullscreen (F11 / Alt+Enter toggle it) */

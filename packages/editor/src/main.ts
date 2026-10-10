@@ -131,6 +131,8 @@ const code = new CodeEditor($("code-host"), $("code-tabs"), {
   changed: (path, text) => {
     project.scripts[path] = text;
     markFile(path);
+    // `--!live` scripts (tuning tables) reach the running game as you type
+    if (isLive(text)) scheduleNativeSync();
   },
   run: () => void restart(),
   save: () => void save(),
@@ -167,6 +169,7 @@ const explorer = new Explorer($("explorer"), {
     renderExplorer();
   },
   newScript: (dir) => void newScript(dir),
+  newLang: () => void newLang(),
   newSprite: (dir) => void newSprite(dir),
   newMap: () => {
     showTab("map");
@@ -212,6 +215,22 @@ async function newScript(dir: string) {
   });
   if (!name) return;
   const path = project.addScript(`${dir}/${name.replace(/\.luau$/, "")}.luau`, `-- ${name}\nlocal M = {}\n\nreturn M\n`);
+  markFile(path);
+  openScript(path);
+}
+
+/** lang/CODE.json: texts for tr("key"); a new one starts as a copy of the first (to translate). */
+async function newLang() {
+  const code = await ask("New language", "en", {
+    message: 'A language code like en, ko, ja. In code: tr("key") shows the text in the player\'s language.',
+    clean: (v) => v.toLowerCase().replace(/[^a-z-]/g, ""),
+    ok: "Create",
+  });
+  if (!code) return;
+  const first = Object.keys(project.scripts).filter((p) => p.startsWith("lang/")).sort()[0];
+  const text = first ? project.scripts[first] : `{\n  "title": "My game",\n  "menu": { "start": "Start", "quit": "Quit" }\n}\n`;
+  const path = project.addScript(`lang/${code}.json`, text);
+  project.folders.add("lang");
   markFile(path);
   openScript(path);
 }
@@ -476,6 +495,11 @@ async function projectSettings() {
       { key: "h", label: "Height (pixels)", type: "number", value: c.resolution[1], min: 16, max: 1080, half: true },
       { key: "bg", label: "Background", type: "color", value: c.background ?? "#000000" },
       { key: "fs", label: "Start in fullscreen", type: "checkbox", value: !!c.fullscreen },
+      {
+        key: "scale", label: "Filling the screen", type: "select", value: c.scale ?? "pixel",
+        options: [["pixel", "Pixel perfect (black borders if the size doesn't divide)"], ["fit", "Fit (any scale, keeps the shape)"], ["expand", "Expand (sharp, no borders: W and H grow)"]],
+        hint: "Expand: draw relative to W and H (or center a stage in them)",
+      },
     ],
     validate: (v) => (!v.name ? "Enter a save name" : Number(v.w) < 16 || Number(v.h) < 16 ? "The game needs at least 16 × 16 pixels" : null),
   });
@@ -485,6 +509,7 @@ async function projectSettings() {
   c.resolution = [Math.round(Number(r.w)), Math.round(Number(r.h))];
   c.background = String(r.bg);
   c.fullscreen = !!r.fs || undefined;
+  c.scale = r.scale === "pixel" ? undefined : (r.scale as Cartridge["scale"]);
   document.title = `${c.title} · Slate`;
   markFile("slate.json");
   scheduleNativeSync();
@@ -572,8 +597,13 @@ let playtest: Cartridge["playtest"] | null = null;
 /** map objects a game may place its player from */
 const SPAWN = /^(player|start|spawn|hero)$/i;
 
+/** A script that starts with `--!live`: the running game takes its new values without restarting. */
+const isLive = (text: string) => text.replace(/^\uFEFF/, "").startsWith("--!live");
+
 function nativeCart(): Cartridge {
-  const cart: Cartridge = { ...project.toCart(), scripts: applied.scripts, main: applied.main };
+  const scripts = { ...applied.scripts };
+  for (const [p, t] of Object.entries(project.scripts)) if (isLive(t) && p in scripts) scripts[p] = t;
+  const cart: Cartridge = { ...project.toCart(), scripts, main: applied.main };
   const pt = playtest;
   if (pt) {
     cart.playtest = pt;
@@ -1165,7 +1195,7 @@ $("plugin-install").onclick = async () => {
 
 if (import.meta.env.DEV) {
   // dev / automation hooks (trailer capture, tests)
-  Object.assign(window, { slate: { stamp, editor, panels, mapEditor, code, explorer, sfxDialog, musicDialog, welcome, openCart, openScript, selectSprite, showTab, renderExplorer, get project() { return project; } } });
+  Object.assign(window, { slate: { stamp, editor, panels, mapEditor, uiEditor, code, explorer, sfxDialog, musicDialog, welcome, openCart, openScript, selectSprite, showTab, renderExplorer, get project() { return project; } } });
 }
 
 void initUpdater({

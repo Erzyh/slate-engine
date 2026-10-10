@@ -33,10 +33,11 @@ end
 | Screens | `UI.screen(name)` draws a screen made in the UI tab, `UI.settings`, `UI.slots` (below) |
 | Levels | `Level.start` `Level.go(map, spawn)`, behaviors on map objects with `Actors.update` / `Actors.draw` (below) |
 | Save slots | `Save.use(n)` `Save.get` `Save.set` `Save.label` `Save.info` `Save.clear` (below) |
-| Testing | `playtest()` → `{map, x, y}`: only set when the game was started with the editor's "Play from here" (below) |
+| Testing | `playtest()` → `{map, x, y}`: only set when the game was started with the editor's "Play from here" (below). `seed(n)` repeats the same random numbers, `quit(code)` ends the game ([automated tests](#automated-tests)) |
+| Languages | `tr("key", vars)` text in the player's language, `lang()` `lang("en")` `langs()` ([below](#languages)) |
 | Objects | `objects(map, type?)` → `{id, type, sprite, x, y, props, ...props}` (x, y = bottom center, in map pixels) |
-| Input | `btn(action)` `btnp(action)` `axis("x")` `bind(action, keys)` `pad()` (below), `key(name)` `keyp(name)` `mouse.x/.y/.down/.pressed/.released/.wheel` `hit(x, y, w, h)` |
-| Fonts | `font("erx")` switches to the Korean pixel font (below), `text(s, x, y, c, {font = "erx_b"})`, `wrap(s, width)` → lines (wraps between words), `texth()` line height |
+| Input | `btn(action)` `btnp(action)` `axis("x")` `bind(action, keys)` `pad()` (below), `key(name)` `keyp(name)` `mouse.x/.y/.down/.pressed/.released/.wheel`, `mouse.rpressed` (right click), `mouse.long` (held still 0.5 s: the right click of touch screens), `mouse.held` (seconds) `hit(x, y, w, h)` |
+| Fonts | `font("erx")` switches to the Korean pixel font (below), `text(s, x, y, c, {font = "erx_b"})`, `wrap(s, width)` → lines (wraps between words), `texth()` line height, `textsize(s)` → w, h of the drawn text |
 | Volume | `volume("music" \| "sfx", v)` overall volume 0–1 (for a settings screen) |
 | Window | `fullscreen()` state, `fullscreen(true/false)` to switch. Players can always press F11 / Alt+Enter. `"fullscreen": true` in `slate.json` starts in fullscreen |
 | Utilities | `t()` `now()` `rnd` `irnd` `pick` `clamp` `lerp` `fmt(big number → 1.23K)` `W` `H` `log(...)` |
@@ -290,6 +291,55 @@ local done = Text.draw(story, 8, 60, "#ffffff", { typing = 30, start = shownAt }
 - `Dialog.say` understands the same markup: `Dialog.say("{shake}Help!{/} Get me out")`.
 - `Text.width(s)`, `Text.len(s)` (letters without the markup), `Text.strip(s)`.
 
+## Live tuning (`--!live`)
+
+Put `--!live` on the first line of a script that returns a table of numbers (balance, speeds, prices). While the game runs, saving it changes those values in place, without a restart: everything that did `local D = require("data")` sees the new numbers at once. Functions in it are replaced too. Other scripts still restart the game (Ctrl+Enter).
+
+```lua
+--!live
+local D = {}
+D.SPEED = 92          -- edit, save, and the running game uses it
+D.ENEMY_HP = { 10, 14, 20 }
+return D
+```
+
+## Languages
+
+Texts per language go in `lang/<code>.json` (right click the file list → New language). Keys can be nested:
+
+```json
+{ "title": "Spin Keep", "menu": { "start": "Start" }, "gold": "{n} gold" }
+```
+
+```lua
+text(tr("menu.start"), 10, 10)        -- "Start", or the Korean text with lang/ko.json and lang("ko")
+text(tr("gold", { n = 12 }), 10, 20)  -- "12 gold"
+lang("ko")                            -- switch (remembered); lang() = current; langs() = { "en", "ko" }
+```
+
+- The first language is `"language"` in `slate.json`, else English, else the first file. A player's choice is remembered.
+- With two or more languages, `UI.settings` gets a Language row by itself.
+- A missing key shows the key, so untranslated texts stand out.
+
+## Automated tests
+
+```lua
+-- tests/balance.luau: runs after main; wraps update, plays, and ends with quit(code)
+seed(1)
+local frames = 0
+local base = update
+function update(dt)
+  base(dt)
+  frames += 1
+  if frames == 60 * 300 then
+    log(`wave {G.wave} gold {G.gold}`)
+    quit(if G.lost then 1 else 0)
+  end
+end
+```
+
+`slate test my-game --script tests/balance.luau` runs it as fast as the computer goes (`--turbo 20` = 20 game ticks per drawn frame, about 20× real time) and returns the code given to `quit()`; `log()` lines print in the terminal. A script error ends the test with code 1.
+
 ## Play from here
 
 In the Map tab press **Play from here** (or `P` over the map) and click where to start: the game starts on that map at that spot.
@@ -303,6 +353,8 @@ local pt = playtest()     -- { map = "level1", x = 120, y = 64 } or nil
 ```
 
 ## Fonts
+
+- A line that mixes English and Korean is laid out on one baseline, on a 14 px line: `text(s, x, y)` puts the top of the tall letters at y. `textsize(s)` gives the size to center it in a box (`UI.button` does).
 
 - The default is an English pixel font (`pico`); Korean and other characters are drawn with ERXPIXEL automatically.
 - `font("erx")`: everything in ERXPIXEL A (`erx_b` = B, `erx_gl` = extended glyphs). 12 px.

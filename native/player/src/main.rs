@@ -111,6 +111,8 @@ struct Game {
     bg: Color,
     acc: f64,
     fixed: bool,
+    /// SLATE_TURBO: ticks per drawn frame (0 = real time)
+    turbo: u32,
     stats: bool,
     /// the window mode currently applied
     fullscreen: bool,
@@ -129,7 +131,12 @@ struct Game {
 impl Game {
     fn new(c: &Cartridge) -> Game {
         let (sprites, errors) = decode_sprites(c);
-        let gfx = gfx::Gfx::new(c.resolution.0, c.resolution.1, &sprites);
+        let mut gfx = gfx::Gfx::new(c.resolution.0, c.resolution.1, &sprites);
+        gfx.scale_mode = match c.scale.as_deref() {
+            Some("fit") => 1,
+            Some("expand") => 2,
+            _ => 0,
+        };
         let mut engine = Engine::new(gfx, &c.name);
         engine.set_maps(&c.maps);
         engine.mixer.music_src = decode_music(c);
@@ -144,6 +151,7 @@ impl Game {
             bg: Color::from_rgba(bg[0], bg[1], bg[2], 255),
             acc: 0.0,
             fixed: std::env::var("SLATE_RECORD").is_ok(),
+            turbo: std::env::var("SLATE_TURBO").ok().and_then(|v| v.parse().ok()).unwrap_or(0),
             stats: std::env::var("SLATE_STATS").is_ok(),
             fullscreen: c.fullscreen,
             code: String::new(),
@@ -156,6 +164,8 @@ impl Game {
         g.eng.borrow_mut().playtest = c.playtest.clone();
         g.eng.borrow_mut().particles = c.particles.clone();
         g.eng.borrow_mut().screens = c.screens.clone();
+        g.eng.borrow_mut().strings = cart::strings(&c);
+        g.eng.borrow_mut().language = c.language.clone();
         g.restart(script::Sources::from_cart(c), c.lang.as_deref());
         g
     }
@@ -194,11 +204,27 @@ impl Game {
         self.eng.borrow_mut().playtest = c.playtest.clone();
         self.eng.borrow_mut().particles = c.particles.clone();
         self.eng.borrow_mut().screens = c.screens.clone();
+        {
+            let strings = cart::strings(c);
+            let mut e = self.eng.borrow_mut();
+            if strings != e.strings {
+                e.strings = strings;
+                e.strings_version += 1;
+            }
+            e.language = c.language.clone();
+        }
         self.eng.borrow_mut().mixer.music_src = decode_music(c);
         self.eng.borrow_mut().mixer.sound_src = decode_sounds(c);
         let src = script::Sources::from_cart(c);
         if src.key() != self.code {
             self.restart(src, c.lang.as_deref());
+        } else if let Some(s) = &self.script {
+            // `--!live` scripts: new numbers in the running game
+            match s.live_update(&src) {
+                Ok(n) if n > 0 => println!("live: {n} script(s) updated"),
+                Err(e) => self.error = Some(e),
+                _ => {}
+            }
         }
     }
 
@@ -217,6 +243,14 @@ impl Game {
             set_fullscreen(want);
         }
         let t0 = get_time();
+        // expand mode: the game image follows the window size (W and H change for the game)
+        let resized = self.eng.borrow().gfx.wanted_size();
+        if let Some((w, h)) = resized {
+            self.eng.borrow_mut().gfx.resize(w, h);
+            if let Some(s) = &self.script {
+                s.set_size(w, h);
+            }
+        }
         {
             let mut e = self.eng.borrow_mut();
             let (vx, vy, vs, w, h) = (e.gfx.view_x, e.gfx.view_y, e.gfx.view_scale, e.gfx.width, e.gfx.height);
@@ -231,8 +265,10 @@ impl Game {
             if self.fixed && !self.paused {
                 self.acc += STEP;
             }
+            // SLATE_TURBO=n: n fixed ticks per drawn frame, as fast as the machine goes (automated tests)
+            let max_steps = if self.turbo > 0 { self.acc = STEP * self.turbo as f64; self.turbo } else { 5 };
             let mut steps = 0;
-            while self.acc >= STEP && steps < 5 {
+            while self.acc >= STEP && steps < max_steps {
                 self.eng.borrow_mut().input.begin_tick();
                 if let Some(s) = &self.script {
                     if let Err(e) = s.update(STEP) {
@@ -245,7 +281,7 @@ impl Game {
                 self.acc -= STEP;
                 steps += 1;
             }
-            if steps == 5 {
+            if steps == max_steps {
                 self.acc = 0.0;
             }
         }
@@ -345,6 +381,11 @@ async fn main() {
     let mut err_written: Option<String> = None;
     loop {
         let cpu = game.frame();
+        // quit(code) from the game (tests end themselves); not on the web
+        if let Some(code) = game.eng.borrow().quit {
+            #[cfg(not(target_arch = "wasm32"))]
+            std::process::exit(code);
+        }
         // SLATE_ERRLOG always holds the current script error (empty once it is fixed by a hot reload);
         // the editor shows it, tests read it
         if let Some(path) = &errlog {
@@ -431,7 +472,7 @@ async fn main() {
         // Cap at ~250 fps when vsync is unavailable (hidden/minimized windows) to save CPU/battery.
         // Measured over the whole frame, so with vsync this never sleeps.
         let period = get_time() - frame_start;
-        if period < 0.004 && bench.is_none() && shot.is_none() && record.is_none() && cfg!(not(target_arch = "wasm32")) {
+        if period < 0.004 && bench.is_none() && shot.is_none() && record.is_none() && game.turbo == 0 && cfg!(not(target_arch = "wasm32")) {
             std::thread::sleep(std::time::Duration::from_secs_f64(0.004 - period));
         }
         frame_start = get_time();

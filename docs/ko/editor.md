@@ -26,6 +26,8 @@ my-game/
 - 에디터에서 지운 파일은 저장할 때 프로젝트 안의 `.slate-trash/` 로 옮겨진다 (바로 삭제되지 않음).
 - `.slate` 파일 = 프로젝트 전체를 한 파일로 묶은 카트리지 (예제, 공유, 실행용). File > Import로 열 수 있다.
 - `slate.json`에는 프로젝트 팔레트, 파티클 프리셋, 오브젝트 템플릿도 저장된다.
+- **화면 채우기** (Project settings, `slate.json`의 `"scale"`): `"pixel"`(기본)은 정수배로만 키워서 선명하지만 검은 여백이 생길 수 있다. `"fit"`은 아무 배율로 화면에 맞춘다. `"expand"`는 선명함을 유지하면서 게임 화면 자체를 넓혀 꽉 채운다. 이때 `W`, `H`가 해상도보다 커질 수 있으니 `W`, `H` 기준으로 그리거나, 원래 크기의 무대를 가운데에 둔다.
+- `"touchControls": false`: 휴대폰에서 화면 방향키·버튼을 숨긴다 (탭으로 하는 게임).
 
 ## 화면 구성
 
@@ -69,6 +71,7 @@ UI 탭에서 게임이 `UI.screen("hud")`로 그리는 화면(HUD, 타이틀 메
 - 도구 막대에서 요소 추가: **panel**(상자), **text**, **sprite**, **bar**, **button**. 끌어서 이동, 모서리 핸들로 크기 조절. 방향키 1px 이동(Shift: 8), `Ctrl+D` 복제, `Del` 삭제, `Ctrl+Z` 되돌리기.
 - 게임 값 표시: 텍스트에 `{score}`, `{G.coins}`라고 쓰면 지금 값이 나온다. 스프라이트의 **Repeat**는 그 수만큼 반복해서 그린다(`hp` → 체력 하나당 하트 하나). 바는 **Value** / **Max**(`hp`, `maxHp`)만큼 찬다. **Visible**에 값을 적으면 그 값이 false나 0일 때 숨는다.
 - 버튼에는 **id**가 있다: 버튼이 눌린 프레임에 `UI.screen("title")`이 그 id를 돌려준다.
+- **Anchor(기준점)**: X / Y를 화면의 어느 모서리·변·가운데에서 잴지. 오른쪽 위 점수에 Top right를 주면 해상도를 바꿔도 오른쪽 위에 붙어 있다.
 - **Preview values**: 한 줄에 `이름=값` 하나씩(`G.score=1200`) 적으면 그 값일 때 화면이 어떻게 보이는지 확인할 수 있다 (게임에는 저장되지 않음).
 
 ## 파티클 편집기
@@ -127,12 +130,29 @@ File > **New from template**로 바로 돌아가는 게임 하나를 받아서 �
 | `games/jelly` | **Jelly Jump**: 플랫포머. 도트는 전부 손으로 설계(AI 없음). 젤리는 스프라이트 1장에 찌그러짐·늘어남·출렁임을 코드로, 딱정벌레는 2프레임 걷기 애니메이션(`Anim`). 모듈 방식 스크립트 7개. 개발용 F2 깃발로, F8 자동 조종 |
 | `games/star-barrage` | **Star Barrage**: 세로 탄막 슈팅. 스테이지 5개 + 무한 루프, 보스 10마리(페이즈 31개), 탄막 패턴 17종, 영구 업그레이드 16종, 사운드트랙 10곡(Slate Synth). 스테이지 = 맵 `stage1~5`의 오브젝트. 개발용 F2/F3/F4/F6 (`scripts/data.luau` 참고) |
 
+## 언어
+
+파일 목록 우클릭 → **New language**로 `lang/<코드>.json`을 만든다 (번역하기 쉽게 첫 언어를 복사). 코드 탭에서 고치고, 게임에서는 `tr("key")`로 플레이어 언어의 문장을 쓴다 ([API](api.md#언어)).
+
+## 명령줄
+
+에디터 없이 프로젝트를 빌드·실행·테스트한다 (`slate.json`이 있는 폴더라면 Slate 폴더 밖이어도 된다):
+
+```
+node <slate>/tools/slate.mjs new my-game --template topdown
+node <slate>/tools/slate.mjs run my-game --watch      # 아무 편집기에서 저장해도 실행 중인 게임에 반영
+node <slate>/tools/slate.mjs test my-game --script tests/balance.luau
+node <slate>/tools/slate.mjs export my-game --exe     # my-game/build/<제목>.exe
+```
+
+Slate 폴더 안에서는 `npx slate ...`도 된다.
+
 ## macOS, Linux, Android로 내보내기
 
 - **macOS game (.zip)**: 압축을 풀면 나오는 `.app`이 게임이다. Apple 서명이 없어서 처음 실행할 때는 우클릭 → 열기.
 - **Linux game (.zip)**: 압축을 풀고 안의 프로그램을 실행한다 (`game.slate`가 옆에 있어야 한다).
 - macOS·Linux 내보내기에는 그 시스템용 플레이어가 필요하다: macOS·Linux용 Slate에는 세 플레이어가 모두 들어 있고, 플레이어가 없는 빌드에서는 메뉴가 회색으로 표시된다.
-- **Android app (.apk)**: 웹 플레이어를 담은 휴대폰 앱. 휴대폰으로 옮겨서 열면 설치된다 (처음에는 그 앱의 설치 허용 필요). 세로가 더 긴 해상도는 세로 화면, 나머지는 가로 화면으로 고정된다. 터치 화면에서는 화면 방향키와 버튼이 나온다.
+- **Android app (.apk)**: 웹 플레이어를 담은 휴대폰 앱. 휴대폰으로 옮겨서 열면 설치된다 (처음에는 그 앱의 설치 허용 필요). 세로가 더 긴 해상도는 세로 화면, 나머지는 가로 화면으로 고정된다. 터치 화면에서는 화면 방향키와 버튼이 나오고, 길게 누르기는 `mouse.long`(휴대폰의 우클릭)이다.
 - 앱은 Slate가 `~/.slate/`에 한 번 만들어 두는 키(`android-signing-key.der`)로 서명된다. **꼭 백업해 두자**: 같은 키로 서명해야 새 버전이 기존 앱 위에 업데이트된다. 패키지 이름은 `dev.slate.game.<저장 이름>`.
 
 ## 웹 게임으로 내보내기 (itch.io)

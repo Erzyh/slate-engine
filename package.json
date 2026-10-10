@@ -16,7 +16,8 @@
     "cart": "tsx tools/build-cart.ts",
     "typecheck": "tsc -p packages/runtime && tsc -p packages/pixelize && tsc -p packages/editor",
     "examples": "tsx tools/build-cart.ts games/jelly && tsx tools/build-cart.ts games/star-barrage && tsx tools/build-cart.ts templates/platformer && tsx tools/build-cart.ts templates/topdown && tsx tools/build-cart.ts templates/shmup",
-    "web:build": "node tools/build-web.mjs"
+    "web:build": "node tools/build-web.mjs",
+    "slate": "node tools/slate.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
@@ -26,5 +27,8 @@
     "typescript": "^5.7.2",
     "vite": "^6.0.3"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "bin": {
+    "slate": "tools/slate.mjs"
+  }
 }

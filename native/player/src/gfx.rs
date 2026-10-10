@@ -129,6 +129,11 @@ impl Packer {
 pub struct Gfx {
     pub width: u32,
     pub height: u32,
+    /// how the game image fills the window: 0 pixel (whole-number scale), 1 fit (any scale, keeps the
+    /// aspect), 2 expand (whole-number scale; the game image grows to fill the window: W / H change)
+    pub scale_mode: u8,
+    /// the cartridge's resolution (expand never goes below it)
+    pub base: (u32, u32),
     atlas: Texture2D,
     atlas_size: f32,
     pub sprites: HashMap<String, Sprite>,
@@ -209,6 +214,8 @@ impl Gfx {
         let mut g = Gfx {
             width,
             height,
+            scale_mode: 0,
+            base: (width, height),
             atlas: Texture2D::empty(),
             atlas_size: 1.0,
             sprites: HashMap::new(),
@@ -484,6 +491,41 @@ impl Gfx {
         self.text_in(self.font, s, x, y, color, align, scale)
     }
 
+    /// With the classic font, a line that also has ERXPIXEL characters (Hangul...) is laid out on a
+    /// 14 px line: the tall glyphs' tops sit at y and the classic letters drop to share their baseline.
+    /// How far the classic letters drop on such a line (0 when the line has none).
+    pub fn line_drop(&self, font: u8, line: &str) -> f32 {
+        if font == 0 && line.chars().any(|ch| !ch.is_ascii() && self.glyph(ch).is_none()) {
+            crate::bitfont::get(1).map(|f| f.asc as f32).unwrap_or(12.0) - FONT_HEIGHT as f32
+        } else {
+            0.0
+        }
+    }
+
+    /// The height of the drawn text: from the top of the line box to its bottom, line by line.
+    pub fn text_height(&self, font: u8, s: &str, scale: f32) -> f32 {
+        let lines: Vec<&str> = s.split('\n').collect();
+        let mut h = 0.0;
+        for (i, line) in lines.iter().enumerate() {
+            if i + 1 < lines.len() {
+                h += self.line_advance(font, line);
+            } else if font != 0 || self.line_drop(font, line) > 0.0 {
+                h += crate::bitfont::get(font.max(1)).map(|f| f.cell as f32).unwrap_or(14.0);
+            } else {
+                h += FONT_HEIGHT as f32;
+            }
+        }
+        h * scale
+    }
+
+    fn line_advance(&self, font: u8, line: &str) -> f32 {
+        if font == 0 && self.line_drop(font, line) > 0.0 {
+            crate::bitfont::get(1).map(|f| f.cell as f32 + 1.0).unwrap_or(LINE_HEIGHT)
+        } else {
+            self.line_height(font)
+        }
+    }
+
     pub fn text_in(&mut self, font: u8, s: &str, x: f32, y: f32, color: [u8; 4], align: u8, scale: f32) {
         let mut cy = (y - self.cam_y).round();
         for line in s.split('\n') {
@@ -493,16 +535,17 @@ impl Gfx {
                 2 => lw,
                 _ => 0.0,
             };
+            let drop = (self.line_drop(font, line) * scale).round();
             let mut cx = (x - self.cam_x - off).round();
             for ch in line.chars() {
                 let (adv, _) = self.advance(font, ch);
                 if font == 0 {
                     if let Some(g) = self.glyph(ch) {
-                        self.rect_region(g.region, cx, cy, g.width * scale, FONT_HEIGHT as f32 * scale, color, false, false);
+                        self.rect_region(g.region, cx, cy + drop, g.width * scale, FONT_HEIGHT as f32 * scale, color, false, false);
                     } else if !ch.is_ascii() {
-                        // fallback glyph, sitting on the classic font's baseline
+                        // fallback glyph, on the same baseline as the classic letters
                         if let Some((r, gx, gy, _)) = self.bit_glyph(1, ch) {
-                            let top = cy + (FONT_HEIGHT as f32 - crate::bitfont::get(1).map(|f| f.asc as f32).unwrap_or(12.0)) * scale;
+                            let top = cy + drop + (FONT_HEIGHT as f32 - crate::bitfont::get(1).map(|f| f.asc as f32).unwrap_or(12.0)) * scale;
                             if r.w > 0 {
                                 self.rect_region(r, cx + gx as f32 * scale, top + gy as f32 * scale, r.w as f32 * scale, r.h as f32 * scale, color, false, false);
                             }
@@ -515,7 +558,7 @@ impl Gfx {
                 }
                 cx += adv * scale;
             }
-            cy += self.line_height(font) * scale;
+            cy += self.line_advance(font, line) * scale;
         }
     }
 
@@ -530,7 +573,19 @@ impl Gfx {
         let (sw, sh) = (screen_width(), screen_height());
         let (w, h) = (self.width as f32, self.height as f32);
         let fit = (sw / w).min(sh / h);
-        let scale = if fit >= 1.0 { fit.floor() } else { fit };
+        let scale = match self.scale_mode {
+            1 => fit,
+            2 => {
+                // whole-number scale from the base size; the image is as big as the window at that scale
+                let (bw, bh) = (self.base.0 as f32, self.base.1 as f32);
+                let k = (sw / bw).min(sh / bh);
+                // whole numbers from 3x up (crisp); below that, exactly fit (small screens, phones)
+                if k >= 3.0 { k.floor() } else { k }
+            }
+            _ => {
+                if fit >= 1.0 { fit.floor() } else { fit }
+            }
+        };
         let (dw, dh) = (w * scale, h * scale);
         let (x, y) = (((sw - dw) / 2.0).floor(), ((sh - dh) / 2.0).floor());
         self.view_x = x;
@@ -551,6 +606,30 @@ impl Gfx {
         if shader.is_some() {
             gl_use_default_material();
         }
+    }
+
+    /// expand mode: the game image size that fills the window at a whole-number scale (None = keep).
+    pub fn wanted_size(&self) -> Option<(u32, u32)> {
+        if self.scale_mode != 2 {
+            return None;
+        }
+        let (sw, sh) = (screen_width(), screen_height());
+        if sw < 8.0 || sh < 8.0 {
+            return None;
+        }
+        let (bw, bh) = (self.base.0 as f32, self.base.1 as f32);
+        let k = (sw / bw).min(sh / bh);
+        let k = if k >= 3.0 { k.floor() } else { k };
+        let size = (((sw / k - 0.01).ceil() as u32).max(self.base.0), ((sh / k - 0.01).ceil() as u32).max(self.base.1));
+        (size != (self.width, self.height)).then_some(size)
+    }
+
+    /// A new game image size (expand mode).
+    pub fn resize(&mut self, w: u32, h: u32) {
+        self.width = w;
+        self.height = h;
+        self.target = render_target(w, h);
+        self.target.texture.set_filter(FilterMode::Nearest);
     }
 
     /// The game image (render target) as RGBA rows, top to bottom.

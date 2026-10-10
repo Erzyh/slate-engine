@@ -10,6 +10,7 @@ export interface ExplorerHooks {
   openSprite(name: string): void;
   openMap(name: string): void;
   newScript(folder: string): void;
+  newLang(): void;
   newSprite(folder: string): void;
   newMap(): void;
   newSound(folder: string): void;
@@ -89,6 +90,7 @@ export class Explorer {
     if (top === "maps" || !folder) items.push(["New map", () => h.newMap()]);
     if (top === "sounds" || !folder) items.push(["New sound effect", () => h.newSound(top === "sounds" ? folder : "sounds")]);
     if (top === "music" || !folder) items.push(["New music", () => h.newMusic(top === "music" ? folder : "music")]);
+    if (top === "lang" || !folder) items.push(["New language", () => h.newLang()]);
     if (folder) items.push(["New folder", () => h.newFolder(folder)]);
     items.push(null, ["Import files", () => h.importFiles(folder || "")]);
     if (folder.includes("/")) items.push(null, ["Rename folder", () => h.rename(folder)], ["Delete folder", () => h.removeFolder(folder)]);
@@ -110,7 +112,7 @@ export class Explorer {
       const here = files.filter((f) => f.startsWith(dir + "/") && f.split("/").length === depth + 1);
       return { subdirs, here };
     };
-    const order = ["scripts", "sprites", "maps", "music", "sounds"];
+    const order = ["scripts", "sprites", "maps", "music", "sounds", "lang"];
     const tops = [...folders].filter((f) => !f.includes("/")).sort((a, b) => order.indexOf(a) - order.indexOf(b));
 
     const addFolder = (dir: string, depth: number) => {
@@ -169,15 +171,16 @@ export class Explorer {
       } else {
         row.className = "tree-row file";
         row.innerHTML = `<span class="name"></span><span class="size"></span>`;
-        row.querySelector(".name")!.textContent = top === "scripts" ? path.slice(path.lastIndexOf("/") + 1) : name;
+        row.querySelector(".name")!.textContent = top === "scripts" || top === "lang" ? path.slice(path.lastIndexOf("/") + 1) : name;
         if (top === "scripts" && path === main) row.querySelector(".size")!.outerHTML = '<span class="badge" title="Runs first">main</span>';
         if (top === "maps") {
           const m = p.maps.find((x) => x.name === name);
           if (m) row.querySelector(".size")!.textContent = `${m.w}×${m.h}`;
           active = sel.map === name;
           open = () => this.hooks.openMap(name);
-        } else if (top === "scripts") {
+        } else if (top === "scripts" || top === "lang") {
           active = sel.script === path;
+          if (top === "lang") row.title = `${path} · texts for tr("key") in "${name}"`;
           if (path === main) row.title = `${path} (runs first)`;
           open = () => this.hooks.openScript(path);
         } else {

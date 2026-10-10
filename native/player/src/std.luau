@@ -482,6 +482,19 @@ function Physics_.overlap(a, b)
   return a.x < b.x + b.w and b.x < a.x + a.w and a.y < b.y + b.h and b.y < a.y + a.h
 end
 
+-- ------------------------------------------------------------------ live scripts
+-- A script starting with `--!live` is patched into the running game when it changes (the engine runs it
+-- again and merges what it returns into the old table): edit numbers and see them at once.
+function __slate_merge(old, new)
+  for k, v in new do
+    if type(v) == "table" and type(old[k]) == "table" and getmetatable(v) == nil then
+      __slate_merge(old[k], v)
+    else
+      old[k] = v
+    end
+  end
+end
+
 -- ------------------------------------------------------------------ Particles
 --
 --   local fx = Particles.new()
@@ -699,6 +712,14 @@ function Text_.drawChars(chars, x, y, color, o, count)
     cx -= if o.align == "center" then math.floor(w / 2) else w
   end
   local x0 = cx
+  -- a line with Hangul: the classic letters drop to share its baseline (as text() does)
+  local drop = 0
+  for i = 1, #chars do
+    if string.byte(chars[i].ch, 1) > 127 then
+      drop = __textdrop(font) * scale
+      break
+    end
+  end
   for i = 1, n do
     local c = chars[i]
     local fx = c.fx
@@ -724,7 +745,8 @@ function Text_.drawChars(chars, x, y, color, o, count)
     if rainbow then col = hsv((now * 0.5 * (if rainbow == true then 1 else rainbow) + i * 0.07) % 1) end
     local w = advance(c.ch, scale, font)
     if not (blink and math.floor(now * 3) % 2 == 0) and c.ch ~= " " then
-      text(c.ch, math.floor(cx + dx + 0.5), math.floor(y + dy + 0.5), col, { scale = scale, font = font, outline = o.outline })
+      local cd = if string.byte(c.ch, 1) > 127 then 0 else drop
+      text(c.ch, math.floor(cx + dx + 0.5), math.floor(y + dy + cd + 0.5), col, { scale = scale, font = font, outline = o.outline })
     end
     cx += w
   end
@@ -1082,8 +1104,8 @@ function UI_.button(label, x, y, w, h, o)
   local over = hit(x, y, w, h)
   rect(x, y, w, h, if over then s.buttonHover else s.button)
   rectline(x, y, w, h, s.border)
-  local lh = texth(1, s.font)
-  text(label, x + w / 2, y + (h - lh) / 2 + 1, o.color or "#f4f4f4", { font = s.font, align = "center" })
+  local _, th = textsize(label, 1, s.font)
+  text(label, x + w / 2, y + math.floor((h - th) / 2 + 0.5), o.color or "#f4f4f4", { font = s.font, align = "center" })
   return over and mouse.pressed
 end
 
@@ -1165,6 +1187,8 @@ end
 -- UI screens made in the editor's UI tab (a HUD, a title menu...):
 --   UI.screen("hud")              -- draws it (call after Cam.reset()); returns the id of a button clicked now
 -- Texts show game values with {name} or {G.coins}; sprites repeat by a value (hearts); bars fill by a value.
+-- An element's anchor ("tl" top left, "t", "tr", "l", "c", "r", "bl", "b", "br") keeps it at that
+-- corner or edge of the screen when the resolution changes; x, y are measured from there.
 
 -- a global (or a field of one) by its dotted name; numbers stay numbers
 local function lookup(path)
@@ -1199,23 +1223,27 @@ function UI_.screen(name)
       if not v or v == 0 then continue end
     end
     local k = e.kind
+    -- x, y are measured from the element's anchor: a corner, an edge's middle or the center
+    local an = e.anchor or "tl"
+    local x = e.x + (if string.find(an, "r") then W elseif string.find(an, "l") then 0 else W / 2)
+    local y = e.y + (if string.sub(an, 1, 1) == "b" then H elseif string.sub(an, 1, 1) == "t" then 0 else H / 2)
     if k == "panel" then
-      rect(e.x, e.y, e.w or 40, e.h or 20, e.bg or UI_.style.panel)
-      if e.border then rectline(e.x, e.y, e.w or 40, e.h or 20, e.border) end
+      rect(x, y, e.w or 40, e.h or 20, e.bg or UI_.style.panel)
+      if e.border then rectline(x, y, e.w or 40, e.h or 20, e.border) end
     elseif k == "text" then
-      Text.draw(fillText(e.text or ""), e.x, e.y, e.color or "#f4f4f4", { align = e.align, scale = e.scale, font = e.font, outline = e.outline })
+      Text.draw(fillText(e.text or ""), x, y, e.color or "#f4f4f4", { align = e.align, scale = e.scale, font = e.font, outline = e.outline })
     elseif k == "sprite" and e.sprite then
       local count = 1
       if e["repeat"] and e["repeat"] ~= "" then count = math.max(0, math.floor(tonumber(lookup(e["repeat"])) or 0)) end
       local info = sprite(e.sprite)
       local step = ((info and info.w) or 8) * (e.scale or 1) + (e.gap or 1)
-      for i = 0, count - 1 do spr(e.sprite, e.x + i * step, e.y, { frame = e.frame, scale = e.scale }) end
+      for i = 0, count - 1 do spr(e.sprite, x + i * step, y, { frame = e.frame, scale = e.scale }) end
     elseif k == "bar" then
       local value = tonumber(lookup(e.value or "0")) or 0
       local max = tonumber(lookup(e.max or "1")) or 1
-      UI_.bar(e.x, e.y, e.w or 40, e.h or 6, value, max, e.color, { back = e.bg, border = e.border })
+      UI_.bar(x, y, e.w or 40, e.h or 6, value, max, e.color, { back = e.bg, border = e.border })
     elseif k == "button" then
-      if UI_.button(fillText(e.text or "OK"), e.x, e.y, e.w or 50, e.h or 14) then clicked = e.id or e.text end
+      if UI_.button(fillText(e.text or "OK"), x, y, e.w or 50, e.h or 14) then clicked = e.id or e.text end
     end
   end
   return clicked
@@ -1310,17 +1338,75 @@ end
 -- Settings are kept between runs (music / sound volume, fullscreen) and applied at start.
 
 local SETTINGS = "slate.settings"
+local Lang_ = { tables = nil, version = -1, cur = nil }
 local function applySettings()
   local s = load(SETTINGS, nil)
   if type(s) ~= "table" then return end
+  if type(s.lang) == "string" then Lang_.cur = s.lang end
   if s.music then volume("music", s.music) end
   if s.sfx then volume("sfx", s.sfx) end
   if s.fullscreen ~= nil then fullscreen(s.fullscreen) end
 end
 local function keepSettings()
-  save(SETTINGS, { music = volume("music"), sfx = volume("sfx"), fullscreen = fullscreen() })
+  save(SETTINGS, { music = volume("music"), sfx = volume("sfx"), fullscreen = fullscreen(), lang = Lang_.cur })
 end
 applySettings()
+
+-- ------------------------------------------------------------------ languages
+-- Texts per language in lang/<code>.json ({ "title": "...", "menu": { "start": "..." } }):
+--   tr("menu.start")                 -- the text in the current language (the key itself if missing)
+--   tr("gold", { n = 12 })           -- "{n} gold" -> "12 gold"
+--   lang()  lang("en")  langs()      -- current / switch (remembered) / available codes
+-- The first language is slate.json "language", else the player's last choice, else "en", else the first.
+
+local function langTables()
+  local v = __strings_version()
+  if v ~= Lang_.version then
+    Lang_.tables, Lang_.version = __strings() or {}, v
+  end
+  return Lang_.tables
+end
+
+function langs()
+  local out = {}
+  for k in langTables() do table.insert(out, k) end
+  table.sort(out)
+  return out
+end
+
+function lang(code)
+  local t = langTables()
+  if code ~= nil then
+    if t[code] == nil then error(`lang: no lang/{code}.json`, 2) end
+    Lang_.cur = code
+    keepSettings()
+    return code
+  end
+  if Lang_.cur == nil or t[Lang_.cur] == nil then
+    local d = __lang_default()
+    Lang_.cur = if d and t[d] then d elseif t.en then "en" else langs()[1]
+  end
+  return Lang_.cur
+end
+
+function tr(key, vars)
+  local t = langTables()
+  local cur = lang()
+  local d = __lang_default()
+  local s = (cur and t[cur] and t[cur][key]) or (d and t[d] and t[d][key]) or (t.en and t.en[key]) or key
+  if vars then
+    s = string.gsub(s, "{([%w_]+)}", function(k)
+      local v = vars[k]
+      return if v == nil then nil else tostring(v)
+    end)
+  end
+  return s
+end
+
+local LANG_NAMES = { ko = "한국어", en = "English", ja = "日本語", zh = "中文", es = "Español", fr = "Français", de = "Deutsch", pt = "Português", ru = "Русский" }
+function langname(code)
+  return LANG_NAMES[code] or string.upper(code)
+end
 
 -- the pause menu's changes are kept too
 for _, it in UI_.pause.menu.items do
@@ -1346,6 +1432,15 @@ function UI_.settings.show()
   local st = UI_.settings
   st.open = true
   st.menu.index = 1
+  local items = st.menu.items
+  local has = false
+  for _, it in items do
+    if it.id == "lang" then has = true end
+  end
+  if not has and #langs() > 1 then table.insert(items, #items, { id = "lang", label = "Language" }) end
+  for _, it in items do
+    if it.id == "lang" then it.label = `{st.langLabel or "Language"}: {langname(lang())}` end
+  end
   for _, it in st.menu.items do
     if it.id == "music" then it.value = volume("music") end
     if it.id == "sfx" then it.value = volume("sfx") end
@@ -1358,6 +1453,12 @@ function UI_.settings.update()
   local st = UI_.settings
   if not st.open then return false end
   local pick = st.menu:update()
+  if pick and st.menu.items[pick].id == "lang" then
+    local all = langs()
+    local i = table.find(all, lang()) or 0
+    lang(all[i % #all + 1])
+    st.menu.items[pick].label = `{st.langLabel or "Language"}: {langname(lang())}`
+  end
   if (pick and st.menu.items[pick].id == "back") or btnp("b") or btnp("start") then st.open = false end
   return true
 end

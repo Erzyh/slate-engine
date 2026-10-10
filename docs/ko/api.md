@@ -33,10 +33,11 @@ end
 | 화면 | `UI.screen(name)`: UI 탭에서 만든 화면을 그린다, `UI.settings`, `UI.slots` (아래) |
 | 레벨 | `Level.start` `Level.go(map, spawn)`, 맵 오브젝트의 행동 `Actors.update` / `Actors.draw` (아래) |
 | 저장 슬롯 | `Save.use(n)` `Save.get` `Save.set` `Save.label` `Save.info` `Save.clear` (아래) |
-| 테스트 | `playtest()` → `{map, x, y}`: 에디터의 "Play from here"로 실행했을 때만 값이 있다 (아래) |
+| 테스트 | `playtest()` → `{map, x, y}`: 에디터의 "Play from here"로 실행했을 때만 값이 있다 (아래). `seed(n)` 같은 난수 반복, `quit(code)` 게임 종료 ([자동 테스트](#자동-테스트)) |
+| 언어 | `tr("key", vars)` 플레이어 언어의 문장, `lang()` `lang("en")` `langs()` ([아래](#언어)) |
 | 오브젝트 | `objects(map, type?)` → `{id, type, sprite, x, y, props, ...props}` (x, y = 아래 가운데, 맵 픽셀) |
-| 입력 | `btn(action)` `btnp(action)` `axis("x")` `bind(action, keys)` `pad()` (아래), `key(name)` `keyp(name)` `mouse.x/.y/.down/.pressed/.released/.wheel` `hit(x, y, w, h)` |
-| 글꼴 | `font("erx")` 한글 픽셀 폰트로 전환 (아래), `text(s, x, y, c, {font = "erx_b"})`, `wrap(s, width)` → 줄 목록 (단어 단위 줄바꿈), `texth()` 줄 높이 |
+| 입력 | `btn(action)` `btnp(action)` `axis("x")` `bind(action, keys)` `pad()` (아래), `key(name)` `keyp(name)` `mouse.x/.y/.down/.pressed/.released/.wheel`, `mouse.rpressed`(우클릭), `mouse.long`(0.5초 가만히 누름: 터치 화면의 우클릭), `mouse.held`(누른 초) `hit(x, y, w, h)` |
+| 글꼴 | `font("erx")` 한글 픽셀 폰트로 전환 (아래), `text(s, x, y, c, {font = "erx_b"})`, `wrap(s, width)` → 줄 목록 (단어 단위 줄바꿈), `texth()` 줄 높이, `textsize(s)` → 그려질 글자의 w, h |
 | 소리 크기 | `volume("music" \| "sfx", v)` 전체 음량 0~1 (설정 화면용) |
 | 창 | `fullscreen()` 상태, `fullscreen(true/false)` 전환. 플레이어는 언제든 F11 / Alt+Enter. `slate.json`에 `"fullscreen": true`면 전체 화면으로 시작 |
 | 유틸 | `t()` `now()` `rnd` `irnd` `pick` `clamp` `lerp` `fmt(큰 수 → 1.23K)` `W` `H` `log(...)` |
@@ -302,7 +303,58 @@ Scene.go(if playtest() then "play" else "title")
 local pt = playtest()     -- { map = "level1", x = 120, y = 64 } 또는 nil
 ```
 
+## 실행 중 수치 바꾸기 (`--!live`)
+
+숫자 표(밸런스, 속도, 가격)를 돌려주는 스크립트의 첫 줄에 `--!live`를 적으면, 게임이 켜져 있는 동안 저장할 때마다 그 값이 **재시작 없이** 바뀐다. `local D = require("data")`로 받아 둔 곳 모두 새 숫자를 바로 쓴다. 안의 함수도 바뀐다. 다른 스크립트는 여전히 재시작(Ctrl+Enter)이 필요하다.
+
+```lua
+--!live
+local D = {}
+D.SPEED = 92          -- 고치고 저장하면 실행 중인 게임에 바로 반영
+D.ENEMY_HP = { 10, 14, 20 }
+return D
+```
+
+## 언어
+
+언어별 문장은 `lang/<코드>.json`에 둔다 (파일 목록 우클릭 → New language). 키는 겹쳐도 된다:
+
+```json
+{ "title": "회전 요새", "menu": { "start": "시작하기" }, "gold": "골드 {n}개" }
+```
+
+```lua
+text(tr("menu.start"), 10, 10)        -- 지금 언어의 문장
+text(tr("gold", { n = 12 }), 10, 20)  -- "골드 12개"
+lang("en")                            -- 바꾸기 (다음 실행에도 기억); lang() = 지금 언어; langs() = { "en", "ko" }
+```
+
+- 처음 언어는 `slate.json`의 `"language"`, 없으면 영어, 없으면 첫 파일. 플레이어가 고른 언어는 기억된다.
+- 언어가 둘 이상이면 `UI.settings`에 언어 줄이 저절로 생긴다.
+- 없는 키는 키 이름이 그대로 보여서, 번역 안 된 곳이 눈에 띈다.
+
+## 자동 테스트
+
+```lua
+-- tests/balance.luau: main 다음에 실행된다. update를 감싸서 게임을 돌리고 quit(code)로 끝낸다
+seed(1)
+local frames = 0
+local base = update
+function update(dt)
+  base(dt)
+  frames += 1
+  if frames == 60 * 300 then
+    log(`wave {G.wave} gold {G.gold}`)
+    quit(if G.lost then 1 else 0)
+  end
+end
+```
+
+`slate test my-game --script tests/balance.luau`는 컴퓨터가 낼 수 있는 최고 속도로 돌리고(`--turbo 20` = 그리는 프레임마다 게임 틱 20번, 실제 시간의 약 20배) `quit()`에 준 코드로 끝난다. `log()`는 터미널에 나온다. 스크립트 오류가 나면 코드 1로 끝난다.
+
 ## 글꼴
+
+- 영문과 한글이 섞인 줄은 한 기준선 위에 14px 줄로 놓인다: `text(s, x, y)`는 큰 글자의 위쪽을 y에 맞춘다. 상자 가운데에 놓을 때는 `textsize(s)`로 크기를 잰다 (`UI.button`이 그렇게 한다).
 
 - 기본은 영문 픽셀 폰트(`pico`)이고, 한글 등 그 밖의 글자는 자동으로 ERXPIXEL로 그린다.
 - `font("erx")`: 전체를 ERXPIXEL A로 (`erx_b` = B, `erx_gl` = 확장 글리프). 12px.

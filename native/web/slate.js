@@ -173,14 +173,15 @@
   // ---------------------------------------------------------------- touch controls
   // Phones and tablets get an on-screen d-pad, A, B and Start. They drive the gamepad buttons
   // (standard mapping), so games need no changes: btn("left"), btn("a")... just work.
-  // ?touch=1 shows them anywhere, ?touch=0 never.
-  const touch = { on: false, b: new Float32Array(16) };
+  // ?touch=1 shows them anywhere, ?touch=0 never; a game with "touchControls": false in slate.json
+  // (played by tapping) never shows them.
+  const touch = { on: false, off: false, b: new Float32Array(16) };
   const PAD = { up: 12, down: 13, left: 14, right: 15, a: 0, b: 1, start: 9 };
 
   function touchControls() {
     const force = new URLSearchParams(location.search).get("touch");
     const coarse = matchMedia("(pointer: coarse)").matches && navigator.maxTouchPoints > 0;
-    if (force === "0" || (!coarse && force !== "1")) return;
+    if (force === "0" || touch.off || (!coarse && force !== "1")) return;
     touch.on = true;
     const css = document.createElement("style");
     css.textContent = `
@@ -277,6 +278,7 @@
     try {
       const c = JSON.parse(new TextDecoder().decode(cart));
       document.title = c.title || c.name || document.title;
+      if (c.touchControls === false) touch.off = true;
     } catch {}
     overlay.classList.add("ready");
     const go = () => {

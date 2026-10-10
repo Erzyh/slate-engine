@@ -399,3 +399,24 @@ mod tests {
         std::fs::write(out, apk).unwrap();
     }
 }
+
+#[cfg(test)]
+mod export_cart {
+    // Export a built cartridge as an APK with the real web player (what Export > Android does):
+    //   SLATE_APK_CART=game.slate SLATE_APK_OUT=game.apk cargo test export_cart -- --ignored
+    #[test]
+    #[ignore]
+    fn export_cart() {
+        let json = std::fs::read_to_string(std::env::var("SLATE_APK_CART").unwrap()).unwrap();
+        let cart: serde_json::Value = serde_json::from_str(&json).unwrap();
+        let name = cart["name"].as_str().unwrap_or("game").to_string();
+        let title = cart["title"].as_str().unwrap_or(&name).to_string();
+        let res = &cart["resolution"];
+        let portrait = res[1].as_f64().unwrap_or(0.0) > res[0].as_f64().unwrap_or(0.0);
+        assert!(!crate::WEB_WASM.is_empty(), "no web player in this build");
+        let mut web: Vec<(&str, &[u8])> = crate::WEB_FILES.to_vec();
+        web.push(("slate-player.wasm", crate::WEB_WASM));
+        let apk = super::build_apk(&json, &name, &title, portrait, &web).unwrap();
+        std::fs::write(std::env::var("SLATE_APK_OUT").unwrap(), apk).unwrap();
+    }
+}
