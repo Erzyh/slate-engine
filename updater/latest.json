@@ -1,11 +1,11 @@
 {
-  "version": "0.4.1",
-  "notes": "## 다운로드\n\n**`Slate_0.4.1_x64-setup.exe`**: Slate 에디터 설치 파일 (Windows 10/11). 이전 버전을 쓰고 있다면 에디터에서 바로 업데이트됩니다.\n\n**`Slate_0.4.1_universal.dmg`**: macOS (Apple silicon / Intel). 서명되지 않은 앱이라 처음 실행할 때는 우클릭 → 열기.\n\n**`Slate_0.4.1_amd64.AppImage`** / **`.deb`**: Linux.\n\n## 안정성 개선\n\n- 스프라이트가 많아 텍스처에 다 들어가지 않으면 크래시하던 문제: 텍스처를 키워 다시 시도하고, 기기 한도에서도 모자라면 화면에 안내를 띄우고 계속 실행합니다\n- 기기의 최대 텍스처 크기를 확인해서 씁니다 (4096까지만 되는 휴대폰·웹에서 깨지던 문제)\n- 픽셀이 같은 프레임은 한 번만 저장하고, 큰 프레임부터 채워서 텍스처 공간을 덜 씁니다\n- 한글 글자를 별도 텍스처로 분리: 글자가 많아도 사라지지 않고, 핫 리로드해도 유지됩니다\n- 60Hz 모니터에서 업데이트가 한 프레임에 0번, 2번으로 튀던 문제 (프레임 시간 맞춤)\n\n## 문서\n\n- README: macOS / Linux / Android 지원과 OS별 설치 안내\n- API 문서: 가비지 때문에 끊기지 않게 쓰는 법 (옵션 테이블 재사용, 오브젝트 풀 등)\n",
-  "pub_date": "2026-10-13T08:13:39.092Z",
+  "version": "0.4.2",
+  "notes": "## 다운로드\n\n**`Slate_0.4.2_x64-setup.exe`**: Slate 에디터 설치 파일 (Windows 10/11). 이전 버전을 쓰고 있다면 에디터에서 바로 업데이트됩니다.\n\n**`Slate_0.4.2_universal.dmg`**: macOS (Apple silicon / Intel). 서명되지 않은 앱이라 처음 실행할 때는 우클릭 → 열기.\n\n**`Slate_0.4.2_amd64.AppImage`** / **`.deb`**: Linux.\n\n## 버그 수정\n\n- 스프라이트가 텍스처에 다 들어가지 않을 때 도형(`rect`, `cls` 등)과 영문 글자, \"공간이 부족하다\"는 경고까지 사라지던 문제: 이 기본 요소들은 이제 항상 먼저 들어갑니다. 경고에 표시되는 빠진 개수도 정확해졌습니다\n- 165Hz 모니터에서 프레임이 가끔 144Hz로 잘못 맞춰져 게임이 순간적으로 빨라지던 문제: 가장 가까운 주사율로, 프레임 길이의 3% 안에서만 맞춥니다\n",
+  "pub_date": "2026-10-13T12:49:56.028Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUOHlJQVB0eUo0dXFmdkxNRVYwWjMzZVJuc01PZE9VRWxWMWJYOUdSdnBZU0xTdUJLdW9rZXgybHV1N20zY1dRNDNLK21Wam1aTG0xZ29MSTZrZHhydHdhY09wSTE5V0FZPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkxODc5MjE5CWZpbGU6U2xhdGVfMC40LjFfeDY0LXNldHVwLmV4ZQl2ZXJzaW9uOjAuNC4xCmtkRFhBUGRpc1RtR0h5QWRhZ1JLWkJoaExLaFlBZS9IZVExWnZpN09raXF2bVc4RjZPekFpbUViUWZ3TDZ4WXdrVVdSVXYvV3UwVUV0Z1NFcUdWc0FnPT0K",
-      "url": "https://github.com/Erzyh/slate-engine/releases/download/v0.4.1/Slate_0.4.1_x64-setup.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUOHlJQVB0eUo0dWhHQWgxYXlsWFZ3R3hNR3d3bUdnajRiV0tFcjJwcGh6R0V6bXhIRnlma1VVaU1tYXM3MXI4WXF6UFpuTVFVdTJsMGRGalZjVEpISWJocTFlVzdaVGdnPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkxODk1Nzk1CWZpbGU6U2xhdGVfMC40LjJfeDY0LXNldHVwLmV4ZQl2ZXJzaW9uOjAuNC4yCmdURlpyT2o0ZGNqN2NQb1NoZGxMSHVjcFg5SXc5WTV2WFR4ZUM2Ulk0NFNhNEh4MVllNnBxVFMwMmVnU3BmenJYQUxGOVpEWnFXOXFGQ1RrcGtOUEFRPT0K",
+      "url": "https://github.com/Erzyh/slate-engine/releases/download/v0.4.2/Slate_0.4.2_x64-setup.exe"
     }
   }
 }
