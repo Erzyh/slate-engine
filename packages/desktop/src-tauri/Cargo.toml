@@ -1,6 +1,6 @@
 [package]
 name = "slate"
-version = "0.4.1"
+version = "0.4.2"
 description = "Slate - a pixel game studio"
 edition = "2021"
 

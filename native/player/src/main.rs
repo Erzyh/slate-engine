@@ -325,16 +325,48 @@ impl Game {
 }
 
 /// With vsync the measured frame time wobbles around the display's frame (16.6 ms +- a little), so the
-/// fixed 60 Hz update would sometimes run 0 and then 2 ticks in a frame. A time within 0.6 ms of a common
-/// refresh rate's frame counts as exactly that frame.
+/// fixed 60 Hz update would sometimes run 0 and then 2 ticks in a frame. A time within 3% of the nearest
+/// common refresh rate's frame counts as exactly that frame. (A relative window: a fixed +-0.6 ms made
+/// the 144 Hz and 165 Hz windows overlap.)
+const REFRESH_RATES: [f64; 9] = [30.0, 60.0, 75.0, 90.0, 100.0, 120.0, 144.0, 165.0, 240.0];
+
 fn snap_frame_time(dt: f64) -> f64 {
-    for hz in [60.0, 120.0, 144.0, 75.0, 90.0, 165.0, 240.0, 30.0] {
+    let mut best = dt;
+    let mut best_err = f64::MAX;
+    for hz in REFRESH_RATES {
         let frame = 1.0 / hz;
-        if (dt - frame).abs() < 0.0006 {
-            return frame;
+        let err = (dt - frame).abs() / frame;
+        if err < 0.03 && err < best_err {
+            (best, best_err) = (frame, err);
         }
     }
-    dt
+    best
+}
+
+#[cfg(test)]
+mod snap_tests {
+    use super::*;
+
+    #[test]
+    fn nearest_rate_wins() {
+        // 6.5 ms sits in the overlap of the old fixed windows: it is not a 144 Hz frame
+        assert_eq!(snap_frame_time(0.0065), 0.0065);
+        // a wobbly 165 Hz frame snaps to 165 Hz, not 144 Hz
+        assert_eq!(snap_frame_time(1.0 / 165.0 + 0.00015), 1.0 / 165.0);
+        assert_eq!(snap_frame_time(1.0 / 144.0 - 0.00015), 1.0 / 144.0);
+        assert_eq!(snap_frame_time(0.0168), 1.0 / 60.0);
+        // a hitch stays a hitch
+        assert_eq!(snap_frame_time(0.05), 0.05);
+    }
+
+    #[test]
+    fn windows_never_overlap() {
+        let mut w: Vec<(f64, f64)> = REFRESH_RATES.iter().map(|hz| (0.97 / hz, 1.03 / hz)).collect();
+        w.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+        for p in w.windows(2) {
+            assert!(p[0].1 < p[1].0, "{:?} overlaps {:?}", p[0], p[1]);
+        }
+    }
 }
 
 fn draw_error(g: &mut gfx::Gfx, msg: &str) {

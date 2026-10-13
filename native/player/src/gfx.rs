@@ -327,9 +327,12 @@ impl Gfx {
             }
             frame_slot.push(slots);
         }
-        // tallest first keeps the shelves of the packer full
-        let mut order: Vec<usize> = (0..images.len()).collect();
-        order.sort_by(|&a, &b| images[b].h.cmp(&images[a].h).then(images[b].w.cmp(&images[a].w)));
+        // the white pixel and the classic font go in first, whatever happens: shapes, text and the
+        // "doesn't fit" warning itself are drawn with them. Then the frames, tallest first (that keeps
+        // the shelves of the packer full).
+        let mut frames: Vec<usize> = (font_end..images.len()).collect();
+        frames.sort_by(|&a, &b| images[b].h.cmp(&images[a].h).then(images[b].w.cmp(&images[a].w)));
+        let order: Vec<usize> = (0..font_end).chain(frames).collect();
         let total: u64 = images.iter().map(|i| ((i.w + 1) * (i.h + 1)) as u64).sum();
         let mut size = 256u32;
         while (size as u64 * size as u64) < total + total / 4 && size < self.max_texture {
@@ -344,6 +347,7 @@ impl Gfx {
             for &i in &order {
                 match packer.alloc(images[i].w, images[i].h) {
                     Some(r) => regions[i] = r,
+                    // (the essentials come first and are tiny: only frames can miss out)
                     None => missing += 1,
                 }
             }
@@ -353,7 +357,7 @@ impl Gfx {
             size *= 2;
         };
         if missing > 0 {
-            let msg = format!("{missing} sprite frame(s) don't fit in a {size}x{size} texture (this device's limit) and won't show: use smaller or fewer frames");
+            let msg = format!("{missing} sprite image(s) don't fit in a {size}x{size} texture (this device's limit) and won't show: use smaller or fewer frames");
             eprintln!("slate: {msg}");
             self.warning = Some((msg, get_time()));
         }
@@ -373,7 +377,6 @@ impl Gfx {
         for (k, (ch, rows)) in GLYPHS.iter().enumerate() {
             self.glyphs[*ch as usize] = Some(Glyph { region: regions[1 + k], width: rows[0].len() as f32 });
         }
-        debug_assert_eq!(font_end, 1 + GLYPHS.len());
         self.sprites.clear();
         for (si, s) in sprites.iter().enumerate() {
             let regions: Vec<Region> = frame_slot[si].iter().map(|&k| regions[k]).collect();
