@@ -340,6 +340,44 @@ end
 
 `slate test my-game --script tests/balance.luau` runs it as fast as the computer goes (`--turbo 20` = 20 game ticks per drawn frame, about 20× real time) and returns the code given to `quit()`; `log()` lines print in the terminal. A script error ends the test with code 1.
 
+## Smooth frames (garbage)
+
+Luau frees memory with an incremental garbage collector. Creating thousands of tables every frame makes it work harder, which can show up as small hitches. The usual sources and what to do instead:
+
+```lua
+-- 1. Option tables made in every call: build them once, change the fields
+local opts = { frame = 0, flipX = false }
+function draw()
+  for _, e in enemies do
+    opts.frame, opts.flipX = e.frame, e.dir < 0
+    spr("bat", e.x, e.y, opts)
+  end
+end
+
+-- 2. Bullets, particles, popups: reuse dead ones instead of making new tables (a pool)
+local pool = {}
+local function newBullet(x, y, vx, vy)
+  local b = table.remove(pool) or {}
+  b.x, b.y, b.vx, b.vy, b.alive = x, y, vx, vy, true
+  return b
+end
+local function freeBullet(b)
+  b.alive = false
+  table.insert(pool, b)
+end
+
+-- 3. Strings built every frame: only rebuild when the value changes
+local scoreText, shown = "", -1
+function draw()
+  if score ~= shown then scoreText, shown = `SCORE {score}`, score end
+  text(scoreText, 4, 4)
+end
+```
+
+- Remove from lists by swapping with the last item (`list[i] = list[#list]; list[#list] = nil`) when the order doesn't matter: `table.remove` from the middle moves everything after it.
+- Closures (`function() ... end`) made inside `update` are tables too: make them once.
+- Measure first: F3 shows the frame time; most games never need any of this.
+
 ## Play from here
 
 In the Map tab press **Play from here** (or `P` over the map) and click where to start: the game starts on that map at that spot.

@@ -101,6 +101,28 @@ pub struct Glyph {
     pub width: f32,
 }
 
+/// The largest texture side the GPU takes (GL_MAX_TEXTURE_SIZE): 4096 on many phones. At most 8192.
+fn max_texture_size() -> u32 {
+    let mut v: i32 = 0;
+    unsafe { macroquad::miniquad::gl::glGetIntegerv(macroquad::miniquad::gl::GL_MAX_TEXTURE_SIZE, &mut v) };
+    let v = if v <= 0 { 4096 } else { (v as u32).clamp(1024, 8192) };
+    // SLATE_MAX_TEXTURE=n: act like a smaller GPU (testing phones on a desktop)
+    match std::env::var("SLATE_MAX_TEXTURE").ok().and_then(|s| s.parse::<u32>().ok()) {
+        Some(n) => v.min(n.max(256)),
+        None => v,
+    }
+}
+
+/// FNV-1a over a frame's pixels (to find frames that are the same).
+fn hash_pixels(rgba: &[u8]) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for &b in rgba {
+        h ^= b as u64;
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    h
+}
+
 #[derive(Clone)]
 struct Packer {
     x: u32,
@@ -157,10 +179,21 @@ pub struct Gfx {
     pub generation: u32,
     /// Default font for text(): 0 = classic 5x7, 1..=3 = ERXPIXEL (bitfont.rs)
     pub font: u8,
-    /// Bitmap-font glyphs uploaded to the atlas so far: (font, char) -> (region, x, y, advance)
+    /// Bitmap-font glyphs (Hangul...) live in their own texture, uploaded on first use:
+    /// (font, char) -> (region, x, y, advance). A sprite reload doesn't touch them; when the texture is
+    /// full it starts over (the glyphs in use come back on their next draw).
     dyn_glyphs: HashMap<(u8, u32), Option<(Region, i8, i8, u8)>>,
-    /// Free space of the atlas, for glyphs added while the game runs
-    packer: Packer,
+    glyph_tex: Texture2D,
+    /// full glyph textures kept until the frame that drew from them is on screen (drawing is deferred)
+    retired_glyphs: Vec<Texture2D>,
+    glyph_size: f32,
+    glyph_packer: Packer,
+    /// the texture the queued quads use: 0 sprite atlas, 1 glyphs
+    bound: u8,
+    /// the largest texture this device takes (GL_MAX_TEXTURE_SIZE, at most 8192)
+    pub max_texture: u32,
+    /// a problem worth showing (the atlas didn't fit): drawn over the game for a few seconds
+    pub warning: Option<(String, f64)>,
     /// screen shaders (Fx effects, a game's own shader) applied when the frame is shown
     pub post: crate::post::Post,
 }
@@ -236,35 +269,36 @@ impl Gfx {
             generation: 0,
             font: 0,
             dyn_glyphs: HashMap::new(),
-            packer: Packer { x: 1, y: 1, row: 0, size: 1 },
+            glyph_tex: Texture2D::empty(),
+            retired_glyphs: Vec::new(),
+            glyph_size: 1.0,
+            glyph_packer: Packer { x: 1, y: 1, row: 0, size: 1 },
+            bound: 0,
+            max_texture: max_texture_size(),
+            warning: None,
             post: crate::post::Post::new(),
         };
+        g.new_glyph_texture();
         g.build_atlas(sprites);
         g
     }
 
+    fn new_glyph_texture(&mut self) {
+        let size = self.max_texture.min(1024);
+        let old = std::mem::replace(&mut self.glyph_tex, Texture2D::empty());
+        self.retired_glyphs.push(old);
+        self.glyph_tex = Texture2D::from_rgba8(size as u16, size as u16, &vec![0u8; (size * size * 4) as usize]);
+        self.glyph_tex.set_filter(FilterMode::Nearest);
+        self.glyph_size = size as f32;
+        self.glyph_packer = Packer { x: 1, y: 1, row: 0, size };
+        self.dyn_glyphs.clear();
+    }
+
     /// (Re)build the atlas from all sprite frames plus the font.
     pub fn build_atlas(&mut self, sprites: &[SpriteSrc]) {
-        let total: u64 = sprites.iter().flat_map(|s| &s.frames).map(|i| ((i.w + 1) * (i.h + 1)) as u64).sum();
-        let mut size = 512u32;
-        // spare room for bitmap-font glyphs (Hangul etc.) uploaded while the game runs
-        while (size as u64 * size as u64) < total * 2 + 64 * 64 + 384 * 384 {
-            size *= 2;
-        }
-        let size = size.min(8192);
-        let mut pixels = vec![0u8; (size * size * 4) as usize];
-        let mut packer = Packer { x: 1, y: 1, row: 0, size };
-        let mut blit = |img: &Image, packer: &mut Packer| -> Region {
-            let r = packer.alloc(img.w, img.h).expect("sprite atlas is full");
-            for y in 0..img.h {
-                let src = (y * img.w * 4) as usize;
-                let dst = (((r.y + y) * size + r.x) * 4) as usize;
-                pixels[dst..dst + (img.w * 4) as usize].copy_from_slice(&img.rgba[src..src + (img.w * 4) as usize]);
-            }
-            r
-        };
-        self.white = blit(&Image { w: 1, h: 1, rgba: vec![255; 4] }, &mut packer);
-        for (ch, rows) in GLYPHS {
+        // every image: the white pixel, the classic font, then the sprite frames
+        let mut images: Vec<Image> = vec![Image { w: 1, h: 1, rgba: vec![255; 4] }];
+        for (_, rows) in GLYPHS {
             let w = rows[0].len() as u32;
             let mut rgba = vec![0u8; (w * FONT_HEIGHT as u32 * 4) as usize];
             for (y, row) in rows.iter().enumerate() {
@@ -275,12 +309,74 @@ impl Gfx {
                     }
                 }
             }
-            let region = blit(&Image { w, h: FONT_HEIGHT as u32, rgba }, &mut packer);
-            self.glyphs[*ch as usize] = Some(Glyph { region, width: w as f32 });
+            images.push(Image { w, h: FONT_HEIGHT as u32, rgba });
         }
-        self.sprites.clear();
+        let font_end = images.len();
+        // frames with the same pixels share one place (tilesets and animations repeat a lot)
+        let mut unique: HashMap<(u32, u32, u64), usize> = HashMap::new();
+        let mut frame_slot: Vec<Vec<usize>> = Vec::with_capacity(sprites.len());
         for s in sprites {
-            let regions: Vec<Region> = s.frames.iter().map(|f| blit(f, &mut packer)).collect();
+            let mut slots = Vec::with_capacity(s.frames.len());
+            for f in &s.frames {
+                let key = (f.w, f.h, hash_pixels(&f.rgba));
+                let slot = *unique.entry(key).or_insert_with(|| {
+                    images.push(Image { w: f.w, h: f.h, rgba: f.rgba.clone() });
+                    images.len() - 1
+                });
+                slots.push(slot);
+            }
+            frame_slot.push(slots);
+        }
+        // tallest first keeps the shelves of the packer full
+        let mut order: Vec<usize> = (0..images.len()).collect();
+        order.sort_by(|&a, &b| images[b].h.cmp(&images[a].h).then(images[b].w.cmp(&images[a].w)));
+        let total: u64 = images.iter().map(|i| ((i.w + 1) * (i.h + 1)) as u64).sum();
+        let mut size = 256u32;
+        while (size as u64 * size as u64) < total + total / 4 && size < self.max_texture {
+            size *= 2;
+        }
+        size = size.min(self.max_texture);
+        // pack; when it doesn't fit, try a bigger texture, up to what the device takes
+        let (size, regions, missing) = loop {
+            let mut packer = Packer { x: 1, y: 1, row: 0, size };
+            let mut regions = vec![Region::default(); images.len()];
+            let mut missing = 0usize;
+            for &i in &order {
+                match packer.alloc(images[i].w, images[i].h) {
+                    Some(r) => regions[i] = r,
+                    None => missing += 1,
+                }
+            }
+            if missing == 0 || size >= self.max_texture {
+                break (size, regions, missing);
+            }
+            size *= 2;
+        };
+        if missing > 0 {
+            let msg = format!("{missing} sprite frame(s) don't fit in a {size}x{size} texture (this device's limit) and won't show: use smaller or fewer frames");
+            eprintln!("slate: {msg}");
+            self.warning = Some((msg, get_time()));
+        }
+        let mut pixels = vec![0u8; (size * size * 4) as usize];
+        for (i, img) in images.iter().enumerate() {
+            let r = regions[i];
+            if r.w == 0 {
+                continue;
+            }
+            for y in 0..img.h {
+                let src = (y * img.w * 4) as usize;
+                let dst = (((r.y + y) * size + r.x) * 4) as usize;
+                pixels[dst..dst + (img.w * 4) as usize].copy_from_slice(&img.rgba[src..src + (img.w * 4) as usize]);
+            }
+        }
+        self.white = regions[0];
+        for (k, (ch, rows)) in GLYPHS.iter().enumerate() {
+            self.glyphs[*ch as usize] = Some(Glyph { region: regions[1 + k], width: rows[0].len() as f32 });
+        }
+        debug_assert_eq!(font_end, 1 + GLYPHS.len());
+        self.sprites.clear();
+        for (si, s) in sprites.iter().enumerate() {
+            let regions: Vec<Region> = frame_slot[si].iter().map(|&k| regions[k]).collect();
             let (w, h) = s.frames.first().map(|f| (f.w as f32, f.h as f32)).unwrap_or((0.0, 0.0));
             let mut anim_of = vec![None; regions.len()];
             for (a, an) in s.tile_anims.iter().enumerate() {
@@ -293,33 +389,38 @@ impl Gfx {
             let tile_anims = s.tile_anims.iter().map(|a| crate::cart::TileAnim { frames: a.frames.iter().copied().filter(|&f| f < regions.len()).collect(), fps: a.fps }).collect();
             self.sprites.insert(s.name.clone(), Sprite { w, h, fps: s.fps, durations: s.durations.clone(), frames: regions, tags: s.tags.clone(), flags: s.flags.clone(), hitbox: s.hitbox, anim_of, tile_anims });
         }
+        // quads already queued point into the old atlas
+        self.flush();
         self.atlas = Texture2D::from_rgba8(size as u16, size as u16, &pixels);
         self.atlas.set_filter(FilterMode::Nearest);
         self.atlas_size = size as f32;
         self.generation += 1;
-        self.packer = packer;
-        self.dyn_glyphs.clear();
     }
 
-    /// A bitmap-font glyph in the atlas (uploaded on first use). None = no such glyph or atlas full.
+    /// A bitmap-font glyph in the glyph texture (uploaded on first use). None = no such glyph.
     fn bit_glyph(&mut self, font: u8, ch: char) -> Option<(Region, i8, i8, u8)> {
         if let Some(g) = self.dyn_glyphs.get(&(font, ch as u32)) {
             return *g;
         }
         let f = crate::bitfont::get(font)?;
-        let out = f.glyph(ch).map(|g| {
-            if g.w == 0 || g.h == 0 {
-                return (Region::default(), 0, 0, g.adv);
+        let g = f.glyph(ch)?;
+        if g.w == 0 || g.h == 0 {
+            let out = Some((Region::default(), 0, 0, g.adv));
+            self.dyn_glyphs.insert((font, ch as u32), out);
+            return out;
+        }
+        let r = match self.glyph_packer.alloc(g.w as u32, g.h as u32) {
+            Some(r) => r,
+            None => {
+                // full: draw what's queued with the old glyphs, then start a fresh texture
+                self.flush();
+                self.new_glyph_texture();
+                self.glyph_packer.alloc(g.w as u32, g.h as u32)?
             }
-            match self.packer.alloc(g.w as u32, g.h as u32) {
-                Some(r) => {
-                    let img = macroquad::texture::Image { bytes: f.rgba(g), width: g.w as u16, height: g.h as u16 };
-                    self.atlas.update_part(&img, r.x as i32, r.y as i32, g.w as i32, g.h as i32);
-                    (r, g.x, g.y, g.adv)
-                }
-                None => (Region::default(), 0, 0, g.adv),
-            }
-        });
+        };
+        let img = macroquad::texture::Image { bytes: f.rgba(g), width: g.w as u16, height: g.h as u16 };
+        self.glyph_tex.update_part(&img, r.x as i32, r.y as i32, g.w as i32, g.h as i32);
+        let out = Some((r, g.x, g.y, g.adv));
         self.dyn_glyphs.insert((font, ch as u32), out);
         out
     }
@@ -370,6 +471,8 @@ impl Gfx {
             ..Default::default()
         });
         clear_background(clear);
+        // last frame is on screen: glyph textures it filled up can go
+        self.retired_glyphs.clear();
         self.cam_x = 0.0;
         self.cam_y = 0.0;
         self.quads = 0;
@@ -397,7 +500,7 @@ impl Gfx {
             return;
         }
         let gl = unsafe { get_internal_gl() }.quad_gl;
-        gl.texture(Some(&self.atlas));
+        gl.texture(Some(if self.bound == 1 { &self.glyph_tex } else { &self.atlas }));
         gl.draw_mode(DrawMode::Triangles);
         gl.geometry(&self.verts, &self.indices);
         self.verts.clear();
@@ -407,10 +510,17 @@ impl Gfx {
     /// Corners clockwise from top-left.
     #[allow(clippy::too_many_arguments)]
     pub fn quad(&mut self, r: Region, p: [(f32, f32); 4], color: [u8; 4], flip_x: bool, flip_y: bool) {
-        if self.verts.len() >= MAX_QUADS * 4 {
+        self.quad_in(0, r, p, color, flip_x, flip_y)
+    }
+
+    /// A quad from texture `tex` (0 sprite atlas, 1 glyphs); switching textures draws the queue first.
+    #[allow(clippy::too_many_arguments)]
+    fn quad_in(&mut self, tex: u8, r: Region, p: [(f32, f32); 4], color: [u8; 4], flip_x: bool, flip_y: bool) {
+        if self.verts.len() >= MAX_QUADS * 4 || tex != self.bound {
             self.flush();
+            self.bound = tex;
         }
-        let s = self.atlas_size;
+        let s = if tex == 1 { self.glyph_size } else { self.atlas_size };
         let (mut u0, mut v0, mut u1, mut v1) =
             (r.x as f32 / s, r.y as f32 / s, (r.x + r.w) as f32 / s, (r.y + r.h) as f32 / s);
         if flip_x {
@@ -435,6 +545,12 @@ impl Gfx {
 
     pub fn rect_region(&mut self, r: Region, x: f32, y: f32, w: f32, h: f32, color: [u8; 4], fx: bool, fy: bool) {
         self.quad(r, [(x, y), (x + w, y), (x + w, y + h), (x, y + h)], color, fx, fy);
+    }
+
+    /// A bitmap-font glyph (from the glyph texture).
+    #[allow(clippy::too_many_arguments)]
+    fn glyph_rect(&mut self, r: Region, x: f32, y: f32, w: f32, h: f32, color: [u8; 4]) {
+        self.quad_in(1, r, [(x, y), (x + w, y), (x + w, y + h), (x, y + h)], color, false, false);
     }
 
     pub fn fill(&mut self, x: f32, y: f32, w: f32, h: f32, color: [u8; 4]) {
@@ -547,13 +663,13 @@ impl Gfx {
                         if let Some((r, gx, gy, _)) = self.bit_glyph(1, ch) {
                             let top = cy + drop + (FONT_HEIGHT as f32 - crate::bitfont::get(1).map(|f| f.asc as f32).unwrap_or(12.0)) * scale;
                             if r.w > 0 {
-                                self.rect_region(r, cx + gx as f32 * scale, top + gy as f32 * scale, r.w as f32 * scale, r.h as f32 * scale, color, false, false);
+                                self.glyph_rect(r, cx + gx as f32 * scale, top + gy as f32 * scale, r.w as f32 * scale, r.h as f32 * scale, color);
                             }
                         }
                     }
                 } else if let Some((r, gx, gy, _)) = self.bit_glyph(font, ch) {
                     if r.w > 0 {
-                        self.rect_region(r, cx + gx as f32 * scale, cy + gy as f32 * scale, r.w as f32 * scale, r.h as f32 * scale, color, false, false);
+                        self.glyph_rect(r, cx + gx as f32 * scale, cy + gy as f32 * scale, r.w as f32 * scale, r.h as f32 * scale, color);
                     }
                 }
                 cx += adv * scale;

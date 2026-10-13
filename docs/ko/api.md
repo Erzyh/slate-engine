@@ -352,6 +352,44 @@ end
 
 `slate test my-game --script tests/balance.luau`는 컴퓨터가 낼 수 있는 최고 속도로 돌리고(`--turbo 20` = 그리는 프레임마다 게임 틱 20번, 실제 시간의 약 20배) `quit()`에 준 코드로 끝난다. `log()`는 터미널에 나온다. 스크립트 오류가 나면 코드 1로 끝난다.
 
+## 부드러운 프레임 (가비지)
+
+Luau는 점진적 가비지 컬렉터로 메모리를 정리한다. 매 프레임 테이블을 수천 개씩 만들면 정리할 일이 늘어서 가끔 짧게 끊길 수 있다. 흔한 원인과 대신 쓸 방법:
+
+```lua
+-- 1. 호출마다 만드는 옵션 테이블: 한 번 만들고 값만 바꾼다
+local opts = { frame = 0, flipX = false }
+function draw()
+  for _, e in enemies do
+    opts.frame, opts.flipX = e.frame, e.dir < 0
+    spr("bat", e.x, e.y, opts)
+  end
+end
+
+-- 2. 총알, 파티클, 떠오르는 숫자: 새 테이블 대신 죽은 것을 다시 쓴다 (풀)
+local pool = {}
+local function newBullet(x, y, vx, vy)
+  local b = table.remove(pool) or {}
+  b.x, b.y, b.vx, b.vy, b.alive = x, y, vx, vy, true
+  return b
+end
+local function freeBullet(b)
+  b.alive = false
+  table.insert(pool, b)
+end
+
+-- 3. 매 프레임 만드는 문자열: 값이 바뀔 때만 다시 만든다
+local scoreText, shown = "", -1
+function draw()
+  if score ~= shown then scoreText, shown = `SCORE {score}`, score end
+  text(scoreText, 4, 4)
+end
+```
+
+- 순서가 상관없는 목록에서 지울 때는 마지막 항목과 바꿔서 지운다 (`list[i] = list[#list]; list[#list] = nil`). 가운데에서 `table.remove`를 하면 뒤의 항목이 모두 한 칸씩 움직인다.
+- `update` 안에서 만드는 함수(`function() ... end`)도 테이블이다: 한 번만 만든다.
+- 먼저 재 본다: F3으로 프레임 시간을 볼 수 있다. 대부분의 게임은 이런 게 필요 없다.
+
 ## 글꼴
 
 - 영문과 한글이 섞인 줄은 한 기준선 위에 14px 줄로 놓인다: `text(s, x, y)`는 큰 글자의 위쪽을 y에 맞춘다. 상자 가운데에 놓을 때는 `textsize(s)`로 크기를 잰다 (`UI.button`이 그렇게 한다).

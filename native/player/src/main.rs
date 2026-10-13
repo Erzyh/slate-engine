@@ -261,7 +261,7 @@ impl Game {
             self.acc = if std::mem::take(&mut self.step) { STEP } else { 0.0 };
         }
         if self.error.is_none() {
-            self.acc += if self.fixed || self.paused { 0.0 } else { (get_frame_time() as f64).min(0.25) };
+            self.acc += if self.fixed || self.paused { 0.0 } else { snap_frame_time(get_frame_time() as f64).min(0.25) };
             if self.fixed && !self.paused {
                 self.acc += STEP;
             }
@@ -306,6 +306,10 @@ impl Game {
         e.gfx.set_blend(false);
         if let Some(err) = &self.error {
             draw_error(&mut e.gfx, err);
+        } else if let Some((msg, at)) = e.gfx.warning.clone() {
+            if get_time() - at < 8.0 {
+                draw_error(&mut e.gfx, &msg);
+            }
         }
         e.gfx.flush();
         let cpu = get_time() - t0;
@@ -318,6 +322,19 @@ impl Game {
         e.gfx.present();
         cpu
     }
+}
+
+/// With vsync the measured frame time wobbles around the display's frame (16.6 ms +- a little), so the
+/// fixed 60 Hz update would sometimes run 0 and then 2 ticks in a frame. A time within 0.6 ms of a common
+/// refresh rate's frame counts as exactly that frame.
+fn snap_frame_time(dt: f64) -> f64 {
+    for hz in [60.0, 120.0, 144.0, 75.0, 90.0, 165.0, 240.0, 30.0] {
+        let frame = 1.0 / hz;
+        if (dt - frame).abs() < 0.0006 {
+            return frame;
+        }
+    }
+    dt
 }
 
 fn draw_error(g: &mut gfx::Gfx, msg: &str) {

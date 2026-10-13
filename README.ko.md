@@ -13,8 +13,8 @@
 
 [![Release](https://img.shields.io/github/v/release/Erzyh/slate-engine?style=flat-square&color=4fd3a5)](https://github.com/Erzyh/slate-engine/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-ffcd75?style=flat-square)](LICENSE)
-[![Platform](https://img.shields.io/badge/editor-Windows-3b5dc9?style=flat-square)](https://github.com/Erzyh/slate-engine/releases/latest)
-[![Export](https://img.shields.io/badge/export-.exe%20%7C%20Web-73eff7?style=flat-square)](docs/ko/editor.md#웹-게임으로-내보내기-itchio)
+[![Editor](https://img.shields.io/badge/editor-Windows%20%7C%20macOS%20%7C%20Linux-3b5dc9?style=flat-square)](https://github.com/Erzyh/slate-engine/releases/latest)
+[![Export](https://img.shields.io/badge/export-Windows%20%7C%20macOS%20%7C%20Linux%20%7C%20Android%20%7C%20Web-73eff7?style=flat-square)](docs/ko/editor.md#macos-linux-android로-내보내기)
 [![Luau](https://img.shields.io/badge/script-Luau-00a2ff?style=flat-square)](docs/ko/api.md)
 
 [English](README.md) · **한국어**
@@ -25,7 +25,15 @@
 
 ## 설치
 
-[Releases](https://github.com/Erzyh/slate-engine/releases/latest)에서 `Slate_x.y.z_x64-setup.exe`를 받아 설치하고 실행하면 끝이다 (Windows 10/11). 새 버전이 나오면 에디터가 알려 주고 바로 업데이트한다.
+[Releases](https://github.com/Erzyh/slate-engine/releases/latest)에서 받는다:
+
+| 시스템 | 파일 |
+|---|---|
+| Windows 10/11 | `Slate_x.y.z_x64-setup.exe`. 새 버전이 나오면 에디터가 알려 주고 바로 업데이트한다 |
+| macOS (Apple silicon / Intel) | `Slate_x.y.z_universal.dmg`. Apple 서명이 없어서 처음에는 앱을 우클릭 → 열기 |
+| Linux | `Slate_x.y.z_amd64.AppImage`(실행 권한을 주고 실행) 또는 `.deb` |
+
+게임은 Windows(.exe), macOS(.app), Linux, Android(.apk), 웹(itch.io)으로 내보낼 수 있다.
 
 ## 문서
 
