@@ -1,11 +1,11 @@
 {
-  "version": "0.4.2",
-  "notes": "## 다운로드\n\n**`Slate_0.4.2_x64-setup.exe`**: Slate 에디터 설치 파일 (Windows 10/11). 이전 버전을 쓰고 있다면 에디터에서 바로 업데이트됩니다.\n\n**`Slate_0.4.2_universal.dmg`**: macOS (Apple silicon / Intel). 서명되지 않은 앱이라 처음 실행할 때는 우클릭 → 열기.\n\n**`Slate_0.4.2_amd64.AppImage`** / **`.deb`**: Linux.\n\n## 버그 수정\n\n- 스프라이트가 텍스처에 다 들어가지 않을 때 도형(`rect`, `cls` 등)과 영문 글자, \"공간이 부족하다\"는 경고까지 사라지던 문제: 이 기본 요소들은 이제 항상 먼저 들어갑니다. 경고에 표시되는 빠진 개수도 정확해졌습니다\n- 165Hz 모니터에서 프레임이 가끔 144Hz로 잘못 맞춰져 게임이 순간적으로 빨라지던 문제: 가장 가까운 주사율로, 프레임 길이의 3% 안에서만 맞춥니다\n",
-  "pub_date": "2026-10-13T12:49:56.028Z",
+  "version": "0.5.0",
+  "notes": "## 다운로드\n\n**`Slate_0.5.0_x64-setup.exe`**: Slate 에디터 설치 파일 (Windows 10/11). 이전 버전을 쓰고 있다면 에디터에서 바로 업데이트됩니다.\n\n**`Slate_0.5.0_universal.dmg`**: macOS (Apple silicon / Intel). 서명되지 않은 앱이라 처음 실행할 때는 우클릭 → 열기.\n\n**`Slate_0.5.0_amd64.AppImage`** / **`.deb`**: Linux.\n\n## 새 기능: 빠른 화면에서 부드럽게\n\n게임은 1초에 60번 업데이트하는데, 120/144/165Hz 화면은 그 사이에 프레임을 더 보여 줘서 움직이는 것이 멈췄다 뛰는 것처럼 보였습니다. 이제 업데이트 사이 위치에 그릴 수 있습니다.\n\n- `smooth(obj)`: x, y가 있는 객체의 지난 두 업데이트 사이 위치 (`spr(\"hero\", smooth(hero))`)\n- `Cam.smooth = true`: 카메라도 부드럽게. `Cam.view()`는 그려지는 카메라 위치(시차 배경용)\n- `Smooth.snap(obj)`: 순간이동·리스폰 뒤 보간 끊기, `alpha()`: 업데이트 사이 비율\n- 템플릿 3종에 적용됨 (주인공, 적, 카메라)\n- 측정 (프레임당 이동 거리의 흔들림): 144Hz에서 0.49 → 0.02, 움직이지 않는 프레임 58% → 0%\n\n## 개선\n\n- Windows: 타이머 정밀도를 1ms로 (vsync가 없을 때 프레임 대기가 15ms로 늘어나던 문제)\n- 테스트용 `SLATE_FAKE_DT`: 모든 프레임을 정해진 길이로 (어느 컴퓨터에서든 144Hz 화면 흉내)\n\n## 문서\n\n- API 문서: \"빠른 화면에서 부드럽게 그리기\"\n",
+  "pub_date": "2026-10-14T07:47:58.852Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUOHlJQVB0eUo0dWhHQWgxYXlsWFZ3R3hNR3d3bUdnajRiV0tFcjJwcGh6R0V6bXhIRnlma1VVaU1tYXM3MXI4WXF6UFpuTVFVdTJsMGRGalZjVEpISWJocTFlVzdaVGdnPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkxODk1Nzk1CWZpbGU6U2xhdGVfMC40LjJfeDY0LXNldHVwLmV4ZQl2ZXJzaW9uOjAuNC4yCmdURlpyT2o0ZGNqN2NQb1NoZGxMSHVjcFg5SXc5WTV2WFR4ZUM2Ulk0NFNhNEh4MVllNnBxVFMwMmVnU3BmenJYQUxGOVpEWnFXOXFGQ1RrcGtOUEFRPT0K",
-      "url": "https://github.com/Erzyh/slate-engine/releases/download/v0.4.2/Slate_0.4.2_x64-setup.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUOHlJQVB0eUo0dXZMcjg2MDVVVW54QnMyNVRBSzhhWEhsOGNqVHBPK0tuMTFQQWRBZFZ4UW9udlUvck1xVk5Mbm5VaDdKUlpRYXYvWkNsNmN1OTh5WnBtSEd4S2g4NEFFPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkxOTY0MDc4CWZpbGU6U2xhdGVfMC41LjBfeDY0LXNldHVwLmV4ZQl2ZXJzaW9uOjAuNS4wClVmdGtrb3gyeG13QXdnMHB3d2E0OHpqSjkyMVhnVG5WdFZaMTJ4S3ovMFBCMi9LMFdkUU9QZWl4bDQrUVFkWjRkdWlTc3NtdjdLQVhFazZRbUcwTURnPT0K",
+      "url": "https://github.com/Erzyh/slate-engine/releases/download/v0.5.0/Slate_0.5.0_x64-setup.exe"
     }
   }
 }
