@@ -14,6 +14,8 @@ pub type Shared = Rc<RefCell<Engine>>;
 pub struct Engine {
     /// set by quit(code)
     pub quit: Option<i32>,
+    /// how far the display is between the last update and the next one (0..1), for smooth drawing
+    pub alpha: f64,
     pub gfx: Gfx,
     pub input: Input,
     pub mixer: Mixer,
@@ -73,6 +75,7 @@ impl Engine {
         let seed = std::env::var("SLATE_SEED").ok().and_then(|v| v.parse::<i64>().ok()).map(|n| (n as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15)).unwrap_or(seed);
         Engine {
             quit: None,
+            alpha: 0.0,
             strings: HashMap::new(),
             strings_version: 0,
             language: None,

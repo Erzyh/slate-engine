@@ -33,6 +33,7 @@ end
 | 화면 | `UI.screen(name)`: UI 탭에서 만든 화면을 그린다, `UI.settings`, `UI.slots` (아래) |
 | 레벨 | `Level.start` `Level.go(map, spawn)`, 맵 오브젝트의 행동 `Actors.update` / `Actors.draw` (아래) |
 | 저장 슬롯 | `Save.use(n)` `Save.get` `Save.set` `Save.label` `Save.info` `Save.clear` (아래) |
+| 부드럽게 그리기 | `smooth(obj)` → 지난 두 업데이트 사이의 x, y (120/144Hz 화면), `Cam.smooth`, `Smooth.snap(obj)`, `alpha()` ([아래](#빠른-화면에서-부드럽게-그리기)) |
 | 테스트 | `playtest()` → `{map, x, y}`: 에디터의 "Play from here"로 실행했을 때만 값이 있다 (아래). `seed(n)` 같은 난수 반복, `quit(code)` 게임 종료 ([자동 테스트](#자동-테스트)) |
 | 언어 | `tr("key", vars)` 플레이어 언어의 문장, `lang()` `lang("en")` `langs()` ([아래](#언어)) |
 | 오브젝트 | `objects(map, type?)` → `{id, type, sprite, x, y, props, ...props}` (x, y = 아래 가운데, 맵 픽셀) |
@@ -333,6 +334,28 @@ lang("en")                            -- 바꾸기 (다음 실행에도 기억);
 - 언어가 둘 이상이면 `UI.settings`에 언어 줄이 저절로 생긴다.
 - 없는 키는 키 이름이 그대로 보여서, 번역 안 된 곳이 눈에 띈다.
 
+## 빠른 화면에서 부드럽게 그리기
+
+게임은 1초에 60번 업데이트한다. 120/144/165Hz 화면은 업데이트 한 번에 프레임을 2~3장 보여 주기 때문에, 업데이트마다 한 칸씩 움직이는 것은 멈췄다 뛰는 것처럼 보인다. `smooth()`는 그 사이 위치에 그린다:
+
+```lua
+Cam.smooth = true                         -- 카메라도 부드럽게
+
+function draw()
+  Cam.apply()
+  local x, y = smooth(hero)               -- hero: x, y가 있는 아무 테이블 (Physics 박스, 적...)
+  spr("hero", x, y)
+  for _, b in bats do spr("bat", smooth(b)) end
+end
+
+Smooth.snap(hero)                         -- 순간이동·리스폰 뒤: 옛 위치에서 미끄러져 오지 않게
+```
+
+- `alpha()`는 지금 화면이 지난 업데이트와 다음 업데이트 사이 어디쯤인지(0~1)다. `smooth()`가 이 값을 쓴다.
+- `Cam.smooth`를 켜면 카메라가 따라가는 대상도 `smooth()`로 그려야 한다. 아니면 스크롤과 어긋나 떨려 보인다. 시차 배경은 `Cam.x` 대신 `Cam.view()`(그려지는 카메라 위치)를 쓴다.
+- 48px 이상 한 번에 움직이면 보간하지 않는다. 60Hz 화면에서는 달라지는 게 없고, 화면은 최대 업데이트 한 번(17ms) 늦게 보인다.
+- 템플릿 3종에 모두 적용돼 있다.
+
 ## 자동 테스트
 
 ```lua
@@ -350,7 +373,7 @@ function update(dt)
 end
 ```
 
-`slate test my-game --script tests/balance.luau`는 컴퓨터가 낼 수 있는 최고 속도로 돌리고(`--turbo 20` = 그리는 프레임마다 게임 틱 20번, 실제 시간의 약 20배) `quit()`에 준 코드로 끝난다. `log()`는 터미널에 나온다. 스크립트 오류가 나면 코드 1로 끝난다.
+`slate test my-game --script tests/balance.luau`는 컴퓨터가 낼 수 있는 최고 속도로 돌리고(`--turbo 20` = 그리는 프레임마다 게임 틱 20번, 실제 시간의 약 20배) `quit()`에 준 코드로 끝난다. `log()`는 터미널에 나온다. 스크립트 오류가 나면 코드 1로 끝난다. 플레이어 환경 변수 `SLATE_FAKE_DT=0.00694`를 주면 모든 프레임이 정확히 그 길이가 되어, 어느 컴퓨터에서든 144Hz 화면을 흉내 낼 수 있다.
 
 ## 부드러운 프레임 (가비지)
 

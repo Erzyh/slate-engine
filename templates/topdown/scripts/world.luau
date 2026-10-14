@@ -74,7 +74,8 @@ function World.draw()
     g.anim:draw(g.x, g.y + math.floor(math.sin(t() * 3 + g.bob) * 1.5))
   end
   for _, bat in World.bats do
-    bat.anim:draw(bat.x - 2, bat.y - 8, { tint = if bat.flash > 0 then "#ffffff" else nil, add = bat.flash > 0 })
+    local bx, by = smooth(bat)
+    bat.anim:draw(bx - 2, by - 8, { tint = if bat.flash > 0 then "#ffffff" else nil, add = bat.flash > 0 })
   end
 end
 

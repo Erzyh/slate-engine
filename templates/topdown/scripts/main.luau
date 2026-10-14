@@ -10,6 +10,9 @@ local G = require("game")
 local Hero = require("hero")
 local World = require("world")
 
+-- glide between updates on 120/144 Hz screens (things that move are drawn with smooth())
+Cam.smooth = true
+
 local function hud()
   for i = 1, 3 do
     spr("heart", 4 + (i - 1) * 10, 4, { frame = if i <= G.lives then 0 else 1 })

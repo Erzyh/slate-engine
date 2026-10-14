@@ -58,7 +58,8 @@ function Ship.draw()
   if G.lives <= 0 then return end
   if Ship.hurtT > 0 and math.floor(Ship.hurtT * 14) % 2 == 0 then return end
   local frame = if Ship.vx < -0.3 then 0 elseif Ship.vx > 0.3 then 2 else 1
-  spr("ship", Ship.x, Ship.y, { frame = frame, ox = 0.5, oy = 0.5 })
+  local x, y = smooth(Ship) -- glides between updates on 120/144 Hz screens
+  spr("ship", x, y, { frame = frame, ox = 0.5, oy = 0.5 })
   -- engine flicker
   if math.floor(t() * 20) % 2 == 0 then
     rect(Ship.x - 1, Ship.y + 8, 2, 2, "#ffcd75")

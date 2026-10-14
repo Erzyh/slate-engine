@@ -299,7 +299,7 @@ function draw() Scene_.draw() end
 --   Cam.shake(4, 0.3)
 --   Cam.apply()  ... draw the world ...  Cam.reset()   -- then draw the HUD
 
-local Cam_ = { x = 0, y = 0, ox = 0, oy = 0, shakeAmt = 0, shakeT = 0, bounds = nil }
+local Cam_ = { x = 0, y = 0, ox = 0, oy = 0, shakeAmt = 0, shakeT = 0, bounds = nil, smooth = false, px = 0, py = 0 }
 Cam = Cam_
 
 function Cam_.follow(tx, ty, dt, o)
@@ -333,9 +333,52 @@ function Cam_.update(dt)
   end
 end
 
-function Cam_.apply() camera(math.floor(Cam_.x + Cam_.ox), math.floor(Cam_.y + Cam_.oy)) end
+-- where the camera is drawn: with Cam.smooth, between the last two updates (see smooth())
+function Cam_.view()
+  local x, y = Cam_.x, Cam_.y
+  if Cam_.smooth then
+    local a = alpha()
+    local dx, dy = x - Cam_.px, y - Cam_.py
+    if math.abs(dx) < 64 and math.abs(dy) < 64 then x, y = Cam_.px + dx * a, Cam_.py + dy * a end
+  end
+  return x, y
+end
+function Cam_.apply()
+  local x, y = Cam_.view()
+  camera(math.floor(x + Cam_.ox), math.floor(y + Cam_.oy))
+end
 function Cam_.reset() camera() end
 function Cam_.toWorld(sx, sy) return sx + Cam_.x, sy + Cam_.y end
+
+-- ------------------------------------------------------------------ smooth drawing
+-- The game updates 60 times a second; a 120/144 Hz screen shows frames in between. smooth(o) gives the
+-- position between the last two updates, so moving things glide instead of stepping:
+--
+--   spr("hero", smooth(hero))            -- hero = any table with x, y (a Physics box...)
+--   Cam.smooth = true                    -- the camera too (then draw what it follows with smooth())
+--   Smooth.snap(hero)                    -- after a teleport / respawn: no gliding from the old spot
+-- Jumps of 48 px or more aren't smoothed. On a 60 Hz screen it changes nothing visible.
+
+local Smooth_ = { list = setmetatable({}, { __mode = "k" }) }
+Smooth = Smooth_
+
+function smooth(o)
+  local p = Smooth_.list[o]
+  if p == nil then
+    Smooth_.list[o] = { o.x, o.y }
+    return o.x, o.y
+  end
+  local dx, dy = o.x - p[1], o.y - p[2]
+  if math.abs(dx) >= 48 or math.abs(dy) >= 48 then return o.x, o.y end
+  local a = alpha()
+  return p[1] + dx * a, p[2] + dy * a
+end
+
+function Smooth_.snap(o)
+  local p = Smooth_.list[o]
+  if p then p[1], p[2] = o.x, o.y end
+  if o == Cam_ then Cam_.px, Cam_.py = Cam_.x, Cam_.y end
+end
 
 -- ------------------------------------------------------------------ Debug (editor Game view)
 -- With "Hitboxes" on in the Game view, every box that went through Physics is outlined, and the
@@ -350,7 +393,7 @@ function Debug_.track(b, map)
 end
 
 function Debug_.draw()
-  camera(math.floor(Cam_.x + Cam_.ox), math.floor(Cam_.y + Cam_.oy))
+  Cam_.apply()
   for map in Debug_.maps do
     local mi = mapinfo(map)
     if mi and mi.tw > 0 then
@@ -1916,6 +1959,11 @@ end
 -- (the library keeps private references, so a game may reuse a name like UI or Timer for its own globals)
 function __slate_tick(dt)
   Debug_.on = __debug_boxes()
+  -- before the update: where things are now is "the previous position" for smooth drawing
+  Cam_.px, Cam_.py = Cam_.x, Cam_.y
+  for o, p in Smooth_.list do
+    p[1], p[2] = o.x, o.y
+  end
   Fx_.update(dt)
   -- hit-stop: skip this tick's update entirely
   if Fx_.freezeT > 0 then

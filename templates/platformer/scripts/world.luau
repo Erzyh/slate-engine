@@ -67,7 +67,10 @@ end
 
 function World.draw()
   for _, c in World.coins do c.anim:draw(c.x, c.y) end
-  for _, s in World.slimes do s.anim:draw(s.x - 1, s.y - 8, { flipX = s.dir < 0 }) end
+  for _, s in World.slimes do
+    local x, y = smooth(s)
+    s.anim:draw(x - 1, y - 8, { flipX = s.dir < 0 })
+  end
   if World.goal then World.goal.anim:draw(World.goal.x - 2, World.goal.y) end
 end
 

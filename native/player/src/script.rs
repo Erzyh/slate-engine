@@ -662,6 +662,8 @@ fn register(lua: &Lua, eng: &Shared) -> LuaResult<()> {
 
     // ---------------------------------------------------------------- utils
     func!("t", |e, _l, (): ()| Ok(e.time));
+    // alpha() -> 0..1: how far the screen is between the last update and the next (smooth drawing)
+    func!("alpha", |e, _l, (): ()| Ok(e.alpha));
     func!("now", |_e, _l, (): ()| {
         Ok(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or(0.0))
     });

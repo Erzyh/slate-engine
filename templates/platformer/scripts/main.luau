@@ -10,14 +10,18 @@ local G = require("game")
 local P = require("player")
 local World = require("world")
 
+-- glide between updates on 120/144 Hz screens (things that move are drawn with smooth())
+Cam.smooth = true
+
 local function backdrop()
   cls("#29366f")
   -- far hills scroll slower than the level (parallax)
-  local px = -(Cam.x * 0.25) % 90
+  local cx = Cam.view()
+  local px = -(cx * 0.25) % 90
   for i = -1, 4 do
     circ(px + i * 90, H - 10, 44, "#3b5dc9", true)
   end
-  local qx = -(Cam.x * 0.5) % 70
+  local qx = -(cx * 0.5) % 70
   for i = -1, 5 do
     circ(qx + i * 70 + 35, H + 4, 36, "#257179", true)
   end

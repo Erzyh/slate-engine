@@ -33,6 +33,7 @@ end
 | Screens | `UI.screen(name)` draws a screen made in the UI tab, `UI.settings`, `UI.slots` (below) |
 | Levels | `Level.start` `Level.go(map, spawn)`, behaviors on map objects with `Actors.update` / `Actors.draw` (below) |
 | Save slots | `Save.use(n)` `Save.get` `Save.set` `Save.label` `Save.info` `Save.clear` (below) |
+| Smooth drawing | `smooth(obj)` → x, y between the last two updates (120/144 Hz screens), `Cam.smooth`, `Smooth.snap(obj)`, `alpha()` ([below](#smooth-drawing-on-fast-screens)) |
 | Testing | `playtest()` → `{map, x, y}`: only set when the game was started with the editor's "Play from here" (below). `seed(n)` repeats the same random numbers, `quit(code)` ends the game ([automated tests](#automated-tests)) |
 | Languages | `tr("key", vars)` text in the player's language, `lang()` `lang("en")` `langs()` ([below](#languages)) |
 | Objects | `objects(map, type?)` → `{id, type, sprite, x, y, props, ...props}` (x, y = bottom center, in map pixels) |
@@ -321,6 +322,28 @@ lang("ko")                            -- switch (remembered); lang() = current; 
 - With two or more languages, `UI.settings` gets a Language row by itself.
 - A missing key shows the key, so untranslated texts stand out.
 
+## Smooth drawing on fast screens
+
+The game updates 60 times a second. A 120/144/165 Hz screen shows two or three frames per update, so things moving one step per update look like they stop and jump. `smooth()` draws them in between:
+
+```lua
+Cam.smooth = true                         -- the camera glides too
+
+function draw()
+  Cam.apply()
+  local x, y = smooth(hero)               -- hero: any table with x, y (a Physics box, an enemy...)
+  spr("hero", x, y)
+  for _, b in bats do spr("bat", smooth(b)) end
+end
+
+Smooth.snap(hero)                         -- after a teleport or respawn: don't glide from the old spot
+```
+
+- `alpha()` is how far the screen is between the last update and the next (0 to 1); `smooth()` uses it.
+- With `Cam.smooth` on, draw what the camera follows with `smooth()` too, or it shakes against the scrolling. Parallax backgrounds use `Cam.view()` (the drawn camera position) instead of `Cam.x`.
+- Jumps of 48 px or more aren't smoothed. On a 60 Hz screen nothing changes; the picture is at most one update (17 ms) behind.
+- The three templates do all of this.
+
 ## Automated tests
 
 ```lua
@@ -338,7 +361,7 @@ function update(dt)
 end
 ```
 
-`slate test my-game --script tests/balance.luau` runs it as fast as the computer goes (`--turbo 20` = 20 game ticks per drawn frame, about 20× real time) and returns the code given to `quit()`; `log()` lines print in the terminal. A script error ends the test with code 1.
+`slate test my-game --script tests/balance.luau` runs it as fast as the computer goes (`--turbo 20` = 20 game ticks per drawn frame, about 20× real time) and returns the code given to `quit()`; `log()` lines print in the terminal. A script error ends the test with code 1. `SLATE_FAKE_DT=0.00694` (an environment variable for the player) makes every frame last exactly that long, to try a 144 Hz screen on any computer.
 
 ## Smooth frames (garbage)
 

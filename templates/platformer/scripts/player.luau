@@ -102,7 +102,8 @@ end
 function P.draw()
   local b = P.body
   if P.hurtT > 0 and math.floor(P.hurtT * 12) % 2 == 0 then return end -- blink while invincible
-  P.anim:draw(b.x - 2, b.y - 4, { flipX = P.facing < 0 })
+  local x, y = smooth(b)
+  P.anim:draw(x - 2, y - 4, { flipX = P.facing < 0 })
 end
 
 return P

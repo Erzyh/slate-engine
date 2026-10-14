@@ -113,6 +113,8 @@ struct Game {
     fixed: bool,
     /// SLATE_TURBO: ticks per drawn frame (0 = real time)
     turbo: u32,
+    /// SLATE_FAKE_DT: a fixed frame time instead of the measured one (tests)
+    fake_dt: Option<f64>,
     stats: bool,
     /// the window mode currently applied
     fullscreen: bool,
@@ -152,6 +154,7 @@ impl Game {
             acc: 0.0,
             fixed: std::env::var("SLATE_RECORD").is_ok(),
             turbo: std::env::var("SLATE_TURBO").ok().and_then(|v| v.parse().ok()).unwrap_or(0),
+            fake_dt: std::env::var("SLATE_FAKE_DT").ok().and_then(|v| v.parse().ok()),
             stats: std::env::var("SLATE_STATS").is_ok(),
             fullscreen: c.fullscreen,
             code: String::new(),
@@ -261,7 +264,9 @@ impl Game {
             self.acc = if std::mem::take(&mut self.step) { STEP } else { 0.0 };
         }
         if self.error.is_none() {
-            self.acc += if self.fixed || self.paused { 0.0 } else { snap_frame_time(get_frame_time() as f64).min(0.25) };
+            // SLATE_FAKE_DT=seconds: every frame takes exactly that long (tests a 144 Hz screen anywhere)
+            let frame_dt = self.fake_dt.unwrap_or_else(|| snap_frame_time(get_frame_time() as f64));
+            self.acc += if self.fixed || self.paused { 0.0 } else { frame_dt.min(0.25) };
             if self.fixed && !self.paused {
                 self.acc += STEP;
             }
@@ -284,6 +289,8 @@ impl Game {
             if steps == max_steps {
                 self.acc = 0.0;
             }
+            // what's left of the accumulator: draw() can place things this far toward the next tick
+            self.eng.borrow_mut().alpha = if self.fixed || self.turbo > 0 || self.paused { 0.0 } else { (self.acc / STEP).clamp(0.0, 1.0) };
         }
 
         self.update_ms = (get_time() - t0) * 1000.0;
@@ -323,6 +330,21 @@ impl Game {
         cpu
     }
 }
+
+/// Windows sleeps in steps of 15.6 ms unless asked for 1 ms: the frame cap's short sleep (when vsync
+/// is off) would otherwise overshoot by a whole frame.
+#[cfg(windows)]
+fn fine_timer() {
+    #[link(name = "winmm")]
+    extern "system" {
+        fn timeBeginPeriod(period: u32) -> u32;
+    }
+    unsafe {
+        timeBeginPeriod(1);
+    }
+}
+#[cfg(not(windows))]
+fn fine_timer() {}
 
 /// With vsync the measured frame time wobbles around the display's frame (16.6 ms +- a little), so the
 /// fixed 60 Hz update would sometimes run 0 and then 2 ticks in a frame. A time within 3% of the nearest
@@ -404,6 +426,7 @@ async fn main() {
             }
         }
     };
+    fine_timer();
     let mut game = Game::new(c);
     let watch = match source {
         Source::File(p) if std::env::args().any(|a| a == "--watch") => Some(p.clone()),

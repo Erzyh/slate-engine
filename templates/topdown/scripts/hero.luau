@@ -82,7 +82,8 @@ function Hero.draw()
   local b = Hero.body
   local blink = Hero.hurtT > 0 and math.floor(Hero.hurtT * 14) % 2 == 0
   if not blink then
-    Hero.anim:draw(b.x - 3, b.y - 8, { flipX = Hero.dir == "side" and Hero.fx < 0 })
+    local x, y = smooth(b)
+    Hero.anim:draw(x - 3, y - 8, { flipX = Hero.dir == "side" and Hero.fx < 0 })
   end
   -- sword swipe: a short arc in front of the hero
   if Hero.swingT > 0 then
